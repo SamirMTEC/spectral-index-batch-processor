@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling==1.28.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spectral-index-worker"
+version = "0.1.0"
+description = "Redis Streams worker foundation for SpectralIndex."
+requires-python = ">=3.13"
+dependencies = [
+  "asyncpg==0.31.0",
+  "boto3==1.43.82",
+  "celery==5.5.3",
+  "openpyxl==3.1.5",
+  "rasterio==1.5.1",
+  "redis==8.1.0",
+  "spectral-index-common==0.1.0",
+  "spectral-index-engine==0.1.0",
+  "SQLAlchemy==2.0.52",
+]
+
+[project.scripts]
+spectral-worker = "spectral_worker.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spectral_worker"]

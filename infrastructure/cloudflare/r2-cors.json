@@ -1,0 +1,17 @@
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": ["https://spectral.classlab.com.br"],
+        "methods": ["GET", "HEAD", "PUT"],
+        "headers": [
+          "content-type",
+          "x-amz-checksum-sha256",
+          "x-amz-content-sha256"
+        ]
+      },
+      "exposeHeaders": ["ETag"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}

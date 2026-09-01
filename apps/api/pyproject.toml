@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling==1.28.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spectral-index-api"
+version = "0.1.0"
+description = "FastAPI control plane for SpectralIndex."
+requires-python = ">=3.13"
+dependencies = [
+  "alembic==1.19.1",
+  "asyncpg==0.31.0",
+  "boto3==1.43.82",
+  "botocore==1.43.82",
+  "celery==5.5.3",
+  "fastapi==0.141.1",
+  "numpy==2.5.2",
+  "pillow==12.3.0",
+  "rasterio==1.5.1",
+  "redis==8.1.0",
+  "spectral-index-common==0.1.0",
+  "SQLAlchemy==2.0.52",
+  "uvicorn[standard]==0.52.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spectral_api"]
