@@ -22,7 +22,7 @@ PostgreSQL é a fonte de verdade transacional. Redis atende a ingestão por Stre
 
 - Docker Desktop com Docker Compose.
 - Python 3.13.
-- Node.js 22.12 ou superior e npm 10 ou superior.
+- Node.js 22.13 ou superior e npm 10 ou superior (22.16 recomendado para produção).
 
 As versões usadas no scaffold foram validadas com Python 3.13, Node 24 e Docker Compose 5.
 

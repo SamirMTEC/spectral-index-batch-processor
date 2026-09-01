@@ -214,7 +214,7 @@ Crie o projeto Pages conectado ao repositório:
 | Root directory | `/` |
 | Build command | `npm ci && npm run build` |
 | Build output | `apps/web/dist` |
-| Node | `22.12.0` (`.nvmrc`) |
+| Node | `22.16.0` (`.nvmrc`) |
 | `VITE_API_BASE_URL` | `https://api-spectral.classlab.com.br` |
 
 Os arquivos `_headers` e `_redirects` são copiados ao build e fornecem headers de
