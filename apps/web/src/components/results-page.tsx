@@ -12,6 +12,7 @@ import {
 } from "@/components/product-ui";
 import {
   api,
+  type AnalysisScope,
   type ExportFormat,
   type ProcessingResults,
   type ResultImage,
@@ -45,6 +46,7 @@ export function ResultsPage({
   const [search, setSearch] = useState("");
   const [treatment, setTreatment] = useState("");
   const [index, setIndex] = useState("");
+  const [scope, setScope] = useState<AnalysisScope | "">("");
   const [sort, setSort] = useState<Sort>("repetition");
   const [descending, setDescending] = useState(false);
 
@@ -56,6 +58,7 @@ export function ResultsPage({
           ...(search ? { q: search } : {}),
           ...(treatment ? { treatment } : {}),
           ...(index ? { index } : {}),
+          ...(scope ? { scope } : {}),
           sort,
           descending,
         }),
@@ -68,7 +71,7 @@ export function ResultsPage({
     } finally {
       setLoading(false);
     }
-  }, [descending, index, jobId, search, sort, treatment]);
+  }, [descending, index, jobId, scope, search, sort, treatment]);
 
   useEffect(() => void load(), [load]);
   useEffect(() => {
@@ -157,9 +160,11 @@ export function ResultsPage({
               descending={descending}
               index={index}
               search={search}
+              scope={scope}
               setDescending={setDescending}
               setIndex={setIndex}
               setSearch={setSearch}
+              setScope={setScope}
               setSort={setSort}
               setTreatment={setTreatment}
               sort={sort}
@@ -187,6 +192,11 @@ function Overview({ data }: { data: ProcessingResults }) {
     ["Imagens", overview.image_count],
     ["Índices", overview.indices.join(", ") || "—"],
     ["Pixels analisados", formatInteger(overview.analyzed_pixels)],
+    ["Pixels na ROI", formatInteger(overview.analyzed_pixels_roi)],
+    [
+      "Pixels na imagem completa",
+      formatInteger(overview.analyzed_pixels_full_image),
+    ],
     ["Erros", overview.error_count],
     ["Data da análise", formatDate(overview.analyzed_at)],
   ];
@@ -215,6 +225,7 @@ function Overview({ data }: { data: ProcessingResults }) {
                 <tr>
                   <th className="py-2">Tratamento</th>
                   <th>Índice</th>
+                  <th>Área analisada</th>
                   <th>n</th>
                   <th>Média</th>
                   <th>Desvio padrão</th>
@@ -224,12 +235,13 @@ function Overview({ data }: { data: ProcessingResults }) {
                 {data.treatment_summary.map((summary) => (
                   <tr
                     className="border-b"
-                    key={`${summary.treatment ?? "no-treatment"}-${summary.index_name}`}
+                    key={`${summary.treatment ?? "no-treatment"}-${summary.index_name}-${summary.analysis_scope}`}
                   >
                     <td className="py-2">
                       {summary.treatment ?? "Não informado"}
                     </td>
                     <td>{summary.index_name}</td>
+                    <td>{scopeLabel(summary.analysis_scope)}</td>
                     <td>{summary.n}</td>
                     <td>{formatNumber(summary.mean)}</td>
                     <td>{formatNumber(summary.std)}</td>
@@ -249,17 +261,19 @@ function Table(props: {
   search: string;
   treatment: string;
   index: string;
+  scope: AnalysisScope | "";
   sort: Sort;
   descending: boolean;
   setSearch: (value: string) => void;
   setTreatment: (value: string) => void;
   setIndex: (value: string) => void;
+  setScope: (value: AnalysisScope | "") => void;
   setSort: (value: Sort) => void;
   setDescending: (value: boolean) => void;
 }) {
   return (
     <section className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-5">
+      <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
         <input
           className="border-input rounded-md border px-3 py-2 text-sm"
           onChange={(event) => props.setSearch(event.target.value)}
@@ -275,6 +289,17 @@ function Table(props: {
           {props.data.table.treatments.map((value) => (
             <option key={value}>{value}</option>
           ))}
+        </select>
+        <select
+          className="border-input rounded-md border px-3 py-2 text-sm"
+          onChange={(event) =>
+            props.setScope(event.target.value as AnalysisScope | "")
+          }
+          value={props.scope}
+        >
+          <option value="">Todas as áreas</option>
+          <option value="roi">Somente recorte da ROI</option>
+          <option value="full_image">Somente imagem completa</option>
         </select>
         <select
           className="border-input rounded-md border px-3 py-2 text-sm"
@@ -315,6 +340,7 @@ function Table(props: {
                 "Tratamento",
                 "Repetição",
                 "Índice",
+                "Área analisada",
                 "Mean",
                 "Median",
                 "Min",
@@ -360,6 +386,7 @@ function TableRow({ row }: { row: ResultTableRow }) {
       <td className="px-3 py-3">{row.treatment ?? "Não informado"}</td>
       <td className="px-3">{row.repetition ?? row.capture ?? "—"}</td>
       <td className="px-3 font-medium">{row.index_name}</td>
+      <td className="px-3">{scopeLabel(row.analysis_scope)}</td>
       {values.map((value, position) => (
         <td className="px-3 tabular-nums" key={position}>
           {formatNumber(value)}
@@ -419,6 +446,9 @@ function Images({ images }: { images: ResultImage[] }) {
               type="button"
             >
               <strong>{image.index_name}</strong>
+              <span className="text-primary mt-1 block text-xs font-medium">
+                {scopeLabel(image.analysis_scope)}
+              </span>
               <span className="text-muted-foreground mt-1 block">
                 {image.treatment ?? "Sem tratamento"} ·{" "}
                 {image.repetition ?? image.capture ?? "—"}
@@ -509,6 +539,12 @@ function Errors({ data }: { data: ProcessingResults }) {
               </dd>
             </div>
             <div>
+              <dt>Área analisada</dt>
+              <dd className="text-foreground">
+                {scopeLabel(error.analysis_scope)}
+              </dd>
+            </div>
+            <div>
               <dt>Ação recomendada</dt>
               <dd className="text-foreground">{error.recommended_action}</dd>
             </div>
@@ -534,22 +570,56 @@ function Files({
           CSV, XLSX, ROIs, manifesto e logs são gerados a partir do snapshot
           deste job.
         </p>
-        <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
-          <div className="grid gap-2 sm:grid-cols-5">
-            <Button
-              onClick={() => void onCreate(["csv"])}
-              size="sm"
-              variant="outline"
-            >
-              CSV
-            </Button>
-            <Button
-              onClick={() => void onCreate(["xlsx"])}
-              size="sm"
-              variant="outline"
-            >
-              XLSX
-            </Button>
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div className="border-border rounded-lg border p-4">
+            <h3 className="text-sm font-semibold">Tabela completa</h3>
+            <p className="text-muted-foreground mt-1 text-xs leading-5">
+              Uma linha por repetição e índice, com todas as estatísticas e a
+              quantidade de pixels válidos.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Button
+                onClick={() => void onCreate(["csv"])}
+                size="sm"
+                variant="outline"
+              >
+                <Download /> CSV completo
+              </Button>
+              <Button
+                onClick={() => void onCreate(["xlsx"])}
+                size="sm"
+                variant="outline"
+              >
+                <Download /> XLSX completo
+              </Button>
+            </div>
+          </div>
+          <div className="border-border rounded-lg border p-4">
+            <h3 className="text-sm font-semibold">Médias gerais</h3>
+            <p className="text-muted-foreground mt-1 text-xs leading-5">
+              Média e desvio-padrão entre as repetições, agrupados por
+              tratamento e índice.
+            </p>
+            <div className="mt-3 flex gap-2">
+              <Button
+                onClick={() => void onCreate(["summary_csv"])}
+                size="sm"
+                variant="outline"
+              >
+                <Download /> CSV das médias
+              </Button>
+              <Button
+                onClick={() => void onCreate(["summary_xlsx"])}
+                size="sm"
+                variant="outline"
+              >
+                <Download /> XLSX das médias
+              </Button>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
             <Button
               onClick={() => void onCreate(["rois"])}
               size="sm"
@@ -575,6 +645,29 @@ function Files({
           <Button onClick={() => void onCreate(["complete"])}>
             <Download /> Baixar pacote completo
           </Button>
+        </div>
+        <div className="border-border mt-4 rounded-lg border p-4">
+          <h3 className="text-sm font-semibold">GeoTIFFs dos índices</h3>
+          <p className="text-muted-foreground mt-1 text-xs leading-5">
+            Escolha se deseja baixar somente os índices do recorte da ROI ou
+            somente os índices calculados sobre a imagem completa.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              onClick={() => void onCreate(["rasters_roi"])}
+              size="sm"
+              variant="outline"
+            >
+              <Download /> Baixar índices da ROI
+            </Button>
+            <Button
+              onClick={() => void onCreate(["rasters_full_image"])}
+              size="sm"
+              variant="outline"
+            >
+              <Download /> Baixar índices da imagem completa
+            </Button>
+          </div>
         </div>
         <p className="text-muted-foreground mt-4 text-xs leading-5">
           O pacote completo reúne tabelas, GeoTIFFs, ROIs, configuração,
@@ -761,6 +854,7 @@ function Reproducibility({
               </summary>
               <div className="text-muted-foreground mt-3 space-y-2 text-sm">
                 <p>Fórmula: {input.formula}</p>
+                <p>Área analisada: {scopeLabel(input.analysis_scope)}</p>
                 <p>Versão da ROI: {input.roi_version_id ?? "não disponível"}</p>
                 <p>Parâmetros: {humanParameters(input.parameters)}</p>
                 <p>
@@ -804,6 +898,10 @@ function radiometryLabel(value: string) {
       } as Record<string, string>
     )[value] ?? value
   );
+}
+
+function scopeLabel(value: AnalysisScope) {
+  return value === "roi" ? "Recorte da ROI" : "Imagem completa";
 }
 
 function Empty({ label }: { label: string }) {

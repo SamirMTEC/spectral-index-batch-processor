@@ -331,6 +331,12 @@ Semântica terminal:
 
 ### 7.2 ProcessingItem
 
+Um item possui `analysis_scope = roi | full_image`. A unicidade é definida por
+`(job_id, capture_id, index_name, analysis_scope)`: assim, a mesma fórmula produz
+resultados independentes para o recorte e para a imagem completa. Itens `full_image`
+não referenciam uma ROI; itens `roi` congelam `roi_id`, `roi_version_id` e a geometria
+no snapshot.
+
 Unidade de isolamento: uma combinação `(job, capture, roi_version, index_version, parameter_set)`.
 
 | Campo | Tipo | Regra |

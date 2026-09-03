@@ -132,6 +132,11 @@ class ProcessingItemState(StrEnum):
     SKIPPED = "skipped"
 
 
+class AnalysisScope(StrEnum):
+    ROI = "roi"
+    FULL_IMAGE = "full_image"
+
+
 class ExportArtifactState(StrEnum):
     QUEUED = "queued"
     GENERATING = "generating"
@@ -686,7 +691,13 @@ class ProcessingJob(ProjectOwnedResource, Base):
 class ProcessingItem(ProjectOwnedResource, Base):
     __tablename__ = "processing_items"
     __table_args__ = (
-        UniqueConstraint("job_id", "capture_id", "index_name", name="uq_job_capture_index"),
+        UniqueConstraint(
+            "job_id",
+            "capture_id",
+            "index_name",
+            "analysis_scope",
+            name="uq_job_capture_index_scope",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
@@ -718,6 +729,17 @@ class ProcessingItem(ProjectOwnedResource, Base):
         nullable=True,
     )
     index_name: Mapped[str] = mapped_column(String(32), nullable=False)
+    analysis_scope: Mapped[AnalysisScope] = mapped_column(
+        Enum(
+            AnalysisScope,
+            values_callable=lambda enum: [member.value for member in enum],
+            native_enum=False,
+            create_constraint=True,
+        ),
+        default=AnalysisScope.ROI,
+        nullable=False,
+        index=True,
+    )
     formula_version: Mapped[str] = mapped_column(String(32), default="legacy", nullable=False)
     formula_expression: Mapped[str] = mapped_column(Text, default="", nullable=False)
     parameters_snapshot: Mapped[dict[str, object]] = mapped_column(
@@ -772,6 +794,17 @@ class IndexResult(ProjectOwnedResource, Base):
     object_key: Mapped[str] = mapped_column(String(1024), nullable=False)
     object_version_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     index_name: Mapped[str] = mapped_column(String(32), nullable=False)
+    analysis_scope: Mapped[AnalysisScope] = mapped_column(
+        Enum(
+            AnalysisScope,
+            values_callable=lambda enum: [member.value for member in enum],
+            native_enum=False,
+            create_constraint=True,
+        ),
+        default=AnalysisScope.ROI,
+        nullable=False,
+        index=True,
+    )
     formula_version: Mapped[str] = mapped_column(String(32), default="legacy", nullable=False)
     software_version: Mapped[str] = mapped_column(String(64), default="0.1.0", nullable=False)
     dtype: Mapped[str] = mapped_column(String(32), default="float32", nullable=False)

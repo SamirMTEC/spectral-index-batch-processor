@@ -202,6 +202,7 @@ export type ProcessingJobState =
 export type ProcessingItemState =
   "pending" | "running" | "completed" | "skipped" | "failed";
 export type SpectralIndexName = "NDVI" | "GNDVI" | "SAVI" | "VARI" | "EXG";
+export type AnalysisScope = "roi" | "full_image";
 
 export interface ProcessingStatistics {
   count: number;
@@ -221,6 +222,7 @@ export interface ProcessingItem {
   capture_id: string | null;
   capture: string | null;
   index_name: string;
+  analysis_scope: AnalysisScope;
   formula_version: string;
   state: ProcessingItemState;
   attempts: number;
@@ -270,6 +272,8 @@ export interface ResultsOverview {
   image_count: number;
   indices: string[];
   analyzed_pixels: number;
+  analyzed_pixels_roi: number;
+  analyzed_pixels_full_image: number;
   error_count: number;
   analyzed_at: string | null;
 }
@@ -281,6 +285,7 @@ export interface ResultTableRow extends ProcessingStatistics {
   repetition: string | null;
   capture: string | null;
   index_name: string;
+  analysis_scope: AnalysisScope;
   valid_pixels: number;
   original_preview_url: string | null;
   original_label: string | null;
@@ -289,6 +294,7 @@ export interface ResultTableRow extends ProcessingStatistics {
 export interface TreatmentSummary {
   treatment: string | null;
   index_name: string;
+  analysis_scope: AnalysisScope;
   n: number;
   mean: number | null;
   std: number | null;
@@ -301,6 +307,7 @@ export interface ResultImage {
   repetition: string | null;
   capture: string | null;
   index_name: string;
+  analysis_scope: AnalysisScope;
   original_preview_url: string | null;
   original_label: string | null;
 }
@@ -311,6 +318,7 @@ export interface ProcessingResultError {
   repetition: string | null;
   problem: string;
   error_code: string | null;
+  analysis_scope: AnalysisScope;
   recommended_action: string;
 }
 
@@ -327,13 +335,23 @@ export interface ResultFile {
 }
 
 export type ExportFormat =
-  "csv" | "xlsx" | "rois" | "manifest" | "logs" | "complete";
+  | "csv"
+  | "xlsx"
+  | "summary_csv"
+  | "summary_xlsx"
+  | "rois"
+  | "manifest"
+  | "logs"
+  | "rasters_roi"
+  | "rasters_full_image"
+  | "complete";
 
 export interface ReproducibilityInput {
   item_id: string;
   capture: string | null;
   repetition: string | null;
   index_name: string;
+  analysis_scope: AnalysisScope;
   formula_version: string;
   formula: string;
   parameters: Record<string, unknown>;
@@ -355,6 +373,7 @@ export interface ProcessingResults {
     total: number;
     treatments: string[];
     indices: string[];
+    scopes: AnalysisScope[];
   };
   treatment_summary: TreatmentSummary[];
   images: ResultImage[];
@@ -620,6 +639,7 @@ export const api = {
       q?: string;
       treatment?: string;
       index?: string;
+      scope?: AnalysisScope;
       sort?: "treatment" | "repetition" | "index" | "mean" | "valid_pixels";
       descending?: boolean;
     } = {},

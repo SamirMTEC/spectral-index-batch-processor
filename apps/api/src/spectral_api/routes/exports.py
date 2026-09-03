@@ -22,9 +22,13 @@ Session = Annotated[AsyncSession, Depends(get_session)]
 ARTIFACT_TYPES: dict[ExportFormat, str] = {
     "csv": "csv",
     "xlsx": "xlsx",
+    "summary_csv": "summary_csv",
+    "summary_xlsx": "summary_xlsx",
     "rois": "roi_json",
     "manifest": "manifest_json",
     "logs": "processing_log",
+    "rasters_roi": "roi_rasters_zip",
+    "rasters_full_image": "full_image_rasters_zip",
     "complete": "bundle_zip",
 }
 

@@ -6,11 +6,22 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-ExportFormat = Literal["csv", "xlsx", "rois", "manifest", "logs", "complete"]
+ExportFormat = Literal[
+    "csv",
+    "xlsx",
+    "summary_csv",
+    "summary_xlsx",
+    "rois",
+    "manifest",
+    "logs",
+    "rasters_roi",
+    "rasters_full_image",
+    "complete",
+]
 
 
 class ExportCreate(BaseModel):
-    formats: list[ExportFormat] = Field(min_length=1, max_length=6)
+    formats: list[ExportFormat] = Field(min_length=1, max_length=10)
 
     @field_validator("formats")
     @classmethod

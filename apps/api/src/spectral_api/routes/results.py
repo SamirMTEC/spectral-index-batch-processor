@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from spectral_api.dependencies import CurrentUser, get_session
 from spectral_api.domain.models import (
+    AnalysisScope,
     AssetRole,
     BandAsset,
     BandAssetState,
@@ -118,6 +119,7 @@ async def _results_payload(
     query: str | None,
     treatment_filter: str | None,
     index_filter: str | None,
+    scope_filter: AnalysisScope | None,
     sort: ResultSort,
     descending: bool,
     offset: int,
@@ -256,6 +258,7 @@ async def _results_payload(
                 capture=capture.capture_key if capture else item.error_capture,
                 repetition=repetition,
                 index_name=item.index_name,
+                analysis_scope=item.analysis_scope,
                 formula_version=item.formula_version,
                 formula=item.formula_expression,
                 parameters=item.parameters_snapshot,
@@ -291,6 +294,7 @@ async def _results_payload(
             repetition=repetition,
             capture=capture.capture_key if capture else item.error_capture,
             index_name=item.index_name,
+            analysis_scope=item.analysis_scope,
             mean=stat.mean if stat else None,
             median=stat.median if stat else None,
             min=stat.min if stat else None,
@@ -313,6 +317,7 @@ async def _results_payload(
                 repetition=repetition,
                 capture=row.capture,
                 index_name=item.index_name,
+                analysis_scope=item.analysis_scope,
                 original_preview_url=preview_url,
                 original_label=row.original_label,
             )
@@ -320,11 +325,13 @@ async def _results_payload(
 
     all_treatments = sorted({row.treatment for row in rows if row.treatment})
     all_indices = sorted({row.index_name for row in rows})
+    all_scopes = sorted({row.analysis_scope for row in rows}, key=lambda value: value.value)
     filtered = [
         row
         for row in rows
         if (not treatment_filter or row.treatment == treatment_filter)
         and (not index_filter or row.index_name == index_filter)
+        and (not scope_filter or row.analysis_scope == scope_filter)
         and (
             not query
             or query.casefold()
@@ -337,20 +344,22 @@ async def _results_payload(
     ]
     filtered.sort(key=lambda row: _sort_value(row, sort), reverse=descending)
     visible_rows = filtered[offset : offset + limit]
-    grouped: dict[tuple[str | None, str], list[float]] = defaultdict(list)
+    grouped: dict[tuple[str | None, str, AnalysisScope], list[float]] = defaultdict(list)
     for row in rows:
         if row.mean is not None:
-            grouped[(row.treatment, row.index_name)].append(row.mean)
+            grouped[(row.treatment, row.index_name, row.analysis_scope)].append(row.mean)
     summaries = [
         TreatmentSummary(
             treatment=treatment_name,
             index_name=index_name,
+            analysis_scope=analysis_scope,
             n=len(values),
             mean=float(np.mean(values)) if values else None,
             std=float(np.std(values, ddof=1)) if len(values) > 1 else None,
         )
-        for (treatment_name, index_name), values in sorted(
-            grouped.items(), key=lambda group: ((group[0][0] or ""), group[0][1])
+        for (treatment_name, index_name, analysis_scope), values in sorted(
+            grouped.items(),
+            key=lambda group: ((group[0][0] or ""), group[0][1], group[0][2].value),
         )
     ]
     errors = [
@@ -360,6 +369,7 @@ async def _results_payload(
             repetition=identity(item)[1] or item.error_capture,
             problem=item.error_message or "O item não foi processado.",
             error_code=item.error_code,
+            analysis_scope=item.analysis_scope,
             recommended_action=_recommendation(item.error_code),
         )
         for item in items
@@ -405,6 +415,14 @@ async def _results_payload(
         image_count=len(asset_rows),
         indices=all_indices,
         analyzed_pixels=sum(row.valid_pixels for row in rows),
+        analyzed_pixels_roi=sum(
+            row.valid_pixels for row in rows if row.analysis_scope is AnalysisScope.ROI
+        ),
+        analyzed_pixels_full_image=sum(
+            row.valid_pixels
+            for row in rows
+            if row.analysis_scope is AnalysisScope.FULL_IMAGE
+        ),
         error_count=len(errors),
         analyzed_at=job.finished_at or job.updated_at,
     )
@@ -419,6 +437,7 @@ async def _results_payload(
             total=len(filtered),
             treatments=all_treatments,
             indices=all_indices,
+            scopes=all_scopes,
         ),
         treatment_summary=summaries,
         images=images,
@@ -465,6 +484,7 @@ async def get_processing_results(
     q: str | None = None,
     treatment: str | None = None,
     index: str | None = None,
+    scope: AnalysisScope | None = None,
     sort: ResultSort = "repetition",
     descending: bool = False,
     offset: int = 0,
@@ -481,6 +501,7 @@ async def get_processing_results(
         query=q,
         treatment_filter=treatment,
         index_filter=index,
+        scope_filter=scope,
         sort=sort,
         descending=descending,
         offset=offset,

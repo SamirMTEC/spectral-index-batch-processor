@@ -1,4 +1,6 @@
 import {
+  ArrowLeft,
+  ArrowRight,
   Check,
   Hand,
   MousePointer2,
@@ -6,6 +8,7 @@ import {
   Pencil,
   Plus,
   RotateCcw,
+  ScanLine,
   Square,
   Trash2,
   ZoomIn,
@@ -30,6 +33,7 @@ import {
   api,
   type CaptureBand,
   type CaptureDetail,
+  type CaptureSummary,
   type ROI,
   type ROIGeometryType,
   type ROIInput,
@@ -246,6 +250,7 @@ function gridError(reference: CaptureBand, candidate: CaptureBand) {
 
 export function ROIEditor({ captureId }: { captureId: string }) {
   const [capture, setCapture] = useState<CaptureDetail>();
+  const [captures, setCaptures] = useState<CaptureSummary[]>([]);
   const [rois, setROIs] = useState<ROI[]>([]);
   const [activeROI, setActiveROI] = useState<ROI>();
   const [activeBandId, setActiveBandId] = useState<string>();
@@ -285,11 +290,13 @@ export function ROIEditor({ captureId }: { captureId: string }) {
     setLoading(true);
     setError(undefined);
     try {
-      const [captureValue, roiValues] = await Promise.all([
-        api.getCapture(captureId),
+      const captureValue = await api.getCapture(captureId);
+      const [roiValues, captureValues] = await Promise.all([
         api.listROIs(captureId),
+        api.listCaptures(captureValue.dataset_id),
       ]);
       setCapture(captureValue);
+      setCaptures(captureValues);
       setROIs(roiValues);
       const firstBand =
         captureValue.bands.find((band) => band.band_code === "RED") ??
@@ -376,6 +383,16 @@ export function ROIEditor({ captureId }: { captureId: string }) {
   }, [capture]);
 
   const activeBand = capture?.bands.find((band) => band.id === activeBandId);
+  const captureIndex = captures.findIndex((item) => item.id === captureId);
+  const previousCapture =
+    captureIndex > 0 ? captures[captureIndex - 1] : undefined;
+  const nextCapture =
+    captureIndex >= 0 && captureIndex < captures.length - 1
+      ? captures[captureIndex + 1]
+      : undefined;
+  const allROIsComplete =
+    captures.length > 0 && captures.every((item) => item.roi_count > 0);
+  const firstCaptureWithoutROI = captures.find((item) => item.roi_count === 0);
   const rgbBands = rgbBandsFor(capture);
   const referenceBand = capture?.bands.find(
     (band) => band.id === referenceBandId,
@@ -579,6 +596,13 @@ export function ROIEditor({ captureId }: { captureId: string }) {
         saved,
         ...current.filter((roi) => roi.id !== saved.id),
       ]);
+      setCaptures((current) =>
+        current.map((item) =>
+          item.id === captureId
+            ? { ...item, roi_count: Math.max(1, item.roi_count) }
+            : item,
+        ),
+      );
       loadROI(saved);
     } catch (cause) {
       setError(
@@ -607,7 +631,54 @@ export function ROIEditor({ captureId }: { captureId: string }) {
         eyebrow="Editor de ROI"
         title={capture.replicate_label ?? "Repetição não rotulada"}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Button
+              aria-label="Repetição anterior"
+              disabled={!previousCapture}
+              onClick={() => {
+                if (previousCapture)
+                  window.location.assign(`/captures/${previousCapture.id}/roi`);
+              }}
+              variant="outline"
+            >
+              <ArrowLeft /> Anterior
+            </Button>
+            <select
+              aria-label="Mudar repetição"
+              className="border-input min-w-44 rounded-md border px-3 py-2 text-sm"
+              onChange={(event) =>
+                window.location.assign(`/captures/${event.target.value}/roi`)
+              }
+              value={captureId}
+            >
+              {captures.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.replicate_label ?? item.capture_key}
+                  {item.roi_count > 0 ? " · ROI pronta" : " · sem ROI"}
+                </option>
+              ))}
+            </select>
+            <Button
+              disabled={!nextCapture}
+              onClick={() => {
+                if (nextCapture)
+                  window.location.assign(`/captures/${nextCapture.id}/roi`);
+              }}
+              variant="outline"
+            >
+              Próxima <ArrowRight />
+            </Button>
+            {allROIsComplete && (
+              <Button
+                onClick={() =>
+                  window.location.assign(
+                    `/datasets/${capture.dataset_id}/processing`,
+                  )
+                }
+              >
+                <ScanLine /> Processar índices
+              </Button>
+            )}
             <select
               aria-label="ROI ativa"
               className="border-input min-w-52 rounded-md border px-3 py-2 text-sm"
@@ -961,6 +1032,38 @@ export function ROIEditor({ captureId }: { captureId: string }) {
             >
               <Trash2 /> {activeROI ? "Excluir ROI" : "Limpar desenho"}
             </Button>
+            {nextCapture ? (
+              <Button
+                disabled={!activeROI}
+                onClick={() =>
+                  window.location.assign(`/captures/${nextCapture.id}/roi`)
+                }
+                variant="outline"
+              >
+                Próxima repetição <ArrowRight />
+              </Button>
+            ) : allROIsComplete ? (
+              <Button
+                onClick={() =>
+                  window.location.assign(
+                    `/datasets/${capture.dataset_id}/processing`,
+                  )
+                }
+              >
+                <ScanLine /> Ir para processamento
+              </Button>
+            ) : firstCaptureWithoutROI ? (
+              <Button
+                onClick={() =>
+                  window.location.assign(
+                    `/captures/${firstCaptureWithoutROI.id}/roi`,
+                  )
+                }
+                variant="outline"
+              >
+                Revisar repetição sem ROI <ArrowRight />
+              </Button>
+            ) : null}
           </div>
         </section>
 

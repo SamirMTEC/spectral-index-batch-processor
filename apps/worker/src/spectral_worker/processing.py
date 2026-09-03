@@ -102,7 +102,8 @@ class ProcessingItemProcessor:
             checksum = await asyncio.to_thread(self._sha256, output)
             object_key = (
                 f"results/{item['project_id']}/{item['dataset_id']}/{item['job_id']}/"
-                f"{item['capture_id']}/{item['index_name'].lower()}-{item_id}.tif"
+                f"{item['capture_id']}/{item['analysis_scope']}/"
+                f"{item['index_name'].lower()}-{item_id}.tif"
             )
             await asyncio.to_thread(
                 self.s3.upload_file,
@@ -148,7 +149,7 @@ class ProcessingItemProcessor:
                             """
                             SELECT item.id, item.job_id, item.project_id, item.owner_id,
                                    item.dataset_id, item.capture_id, item.roi_version_id,
-                                   item.index_name, item.formula_version,
+                                   item.index_name, item.analysis_scope, item.formula_version,
                                    item.formula_expression, item.parameters_snapshot,
                                    item.input_snapshot, item.band_mapping_snapshot,
                                    item.roi_snapshot, item.attempts,
@@ -222,7 +223,10 @@ class ProcessingItemProcessor:
             claimed["pixel_coordinates"] = roi_snapshot.get("pixel_coordinates") or claimed.get(
                 "legacy_pixel_coordinates"
             )
-            if claimed["pixel_coordinates"] is None:
+            if (
+                claimed["analysis_scope"] == "roi"
+                and claimed["pixel_coordinates"] is None
+            ):
                 raise ValueError("Processing item has no immutable ROI version")
             return claimed
 
@@ -348,10 +352,14 @@ class ProcessingItemProcessor:
             values_path = workdir / "valid-values.float32"
             values = np.memmap(values_path, dtype=np.float32, mode="w+", shape=(width * height,))
             offset = 0
-            polygon = {
-                "type": "Polygon",
-                "coordinates": [item["pixel_coordinates"]],
-            }
+            polygon = (
+                {
+                    "type": "Polygon",
+                    "coordinates": [item["pixel_coordinates"]],
+                }
+                if item.get("analysis_scope", "roi") == "roi"
+                else None
+            )
             with (
                 rasterio.Env(GDAL_TIFF_INTERNAL_MASK=True),
                 rasterio.open(output_path, "w", **profile) as destination,
@@ -366,11 +374,15 @@ class ProcessingItemProcessor:
                         )
                         for code in required
                     }
-                    roi = geometry_mask(
-                        [polygon],
-                        out_shape=(int(window.height), int(window.width)),
-                        transform=Affine.translation(window.col_off, window.row_off),
-                        invert=True,
+                    roi = (
+                        geometry_mask(
+                            [polygon],
+                            out_shape=(int(window.height), int(window.width)),
+                            transform=Affine.translation(window.col_off, window.row_off),
+                            invert=True,
+                        )
+                        if polygon is not None
+                        else None
                     )
                     result = calculate_index(
                         index_name,
@@ -397,6 +409,7 @@ class ProcessingItemProcessor:
                     SPECTRAL_SOFTWARE_VERSION=str(item.get("software_version") or "0.1.0"),
                     SPECTRAL_PARAMETERS=json.dumps(item["parameters_snapshot"], sort_keys=True),
                     SPECTRAL_PROCESSING_ITEM=str(item["id"]),
+                    SPECTRAL_ANALYSIS_SCOPE=str(item.get("analysis_scope") or "roi"),
                 )
             values.flush()
             del values
@@ -433,13 +446,13 @@ class ProcessingItemProcessor:
                     INSERT INTO index_results (
                         id, project_id, owner_id, dataset_id, processing_item_id,
                         object_key, object_version_id, index_name, dtype, nodata,
-                        formula_version, software_version, width, height, crs,
+                        analysis_scope, formula_version, software_version, width, height, crs,
                         transform, valid_pixel_count,
                         invalid_pixel_count, created_at, updated_at
                     ) VALUES (
                         :id, :project_id, :owner_id, :dataset_id, :item_id,
                         :object_key, :version_id, :index_name, 'float32', 'nan',
-                        :formula_version, :software_version, :width, :height, :crs,
+                        :analysis_scope, :formula_version, :software_version, :width, :height, :crs,
                         CAST(:transform AS jsonb), :valid_count,
                         :invalid_count, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                     ) ON CONFLICT (processing_item_id) DO NOTHING
@@ -454,6 +467,7 @@ class ProcessingItemProcessor:
                     "object_key": object_key,
                     "version_id": version_id,
                     "index_name": item["index_name"],
+                    "analysis_scope": item["analysis_scope"],
                     "formula_version": item["formula_version"],
                     "software_version": item["software_version"],
                     "width": metadata["width"],

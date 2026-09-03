@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from spectral_api.domain.models import (
     AlignmentStatus,
+    AnalysisScope,
     AssetRole,
     BandAsset,
     BandAssetState,
@@ -116,10 +117,14 @@ async def test_job_creation_is_idempotent_and_uses_real_item_count(domain_app: F
         assert created.status_code == 201
         assert repeated.status_code == 201
         assert repeated.json()["id"] == created.json()["id"]
-        assert created.json()["total_items"] == 2
+        assert created.json()["total_items"] == 4
         assert created.json()["processed_items"] == 0
         assert created.json()["progress"] == 0
-        assert len(domain_app.state.resources.celery.tasks) == 2
+        assert {item["analysis_scope"] for item in created.json()["items"]} == {
+            "roi",
+            "full_image",
+        }
+        assert len(domain_app.state.resources.celery.tasks) == 4
 
 
 async def test_job_ownership_and_cancellation(domain_app: FastAPI) -> None:
@@ -134,8 +139,8 @@ async def test_job_ownership_and_cancellation(domain_app: FastAPI) -> None:
         cancelled = await first.post(f"/api/v1/processing-jobs/{job_id}/cancel")
         assert cancelled.status_code == 200
         assert cancelled.json()["state"] == "cancelled"
-        assert cancelled.json()["processed_items"] == 1
-        assert cancelled.json()["skipped_items"] == 1
+        assert cancelled.json()["processed_items"] == 2
+        assert cancelled.json()["skipped_items"] == 2
 
     async with client_for(domain_app, SECOND_USER) as second:
         assert (await second.get(f"/api/v1/processing-jobs/{job_id}")).status_code == 404
@@ -144,7 +149,7 @@ async def test_job_ownership_and_cancellation(domain_app: FastAPI) -> None:
         ).status_code == 404
 
 
-async def test_missing_roi_is_a_skipped_item_not_a_failed_job(domain_app: FastAPI) -> None:
+async def test_missing_roi_skips_crop_but_keeps_full_image_runnable(domain_app: FastAPI) -> None:
     async with client_for(domain_app) as client:
         project = (await client.post("/api/v1/projects", json={"name": "No ROI"})).json()
         dataset = (
@@ -169,10 +174,16 @@ async def test_missing_roi_is_a_skipped_item_not_a_failed_job(domain_app: FastAP
         )
         body = response.json()
         assert response.status_code == 201
-        assert body["state"] == "completed_with_errors"
+        assert body["state"] == "queued"
         assert body["processed_items"] == 1
-        assert body["items"][0]["state"] == "skipped"
-        assert body["items"][0]["error_code"] == "missing_roi"
+        assert body["total_items"] == 2
+        roi_item = next(item for item in body["items"] if item["analysis_scope"] == "roi")
+        full_item = next(
+            item for item in body["items"] if item["analysis_scope"] == "full_image"
+        )
+        assert roi_item["state"] == "skipped"
+        assert roi_item["error_code"] == "missing_roi"
+        assert full_item["state"] == "pending"
 
 
 async def test_results_are_owner_scoped_and_expose_individual_statistics(
@@ -188,7 +199,10 @@ async def test_results_are_owner_scoped_and_expose_individual_statistics(
         async with domain_app.state.session_factory() as session:
             job = await session.get(ProcessingJob, job_id)
             item = await session.scalar(
-                select(ProcessingItem).where(ProcessingItem.job_id == job_id)
+                select(ProcessingItem).where(
+                    ProcessingItem.job_id == job_id,
+                    ProcessingItem.analysis_scope == AnalysisScope.ROI,
+                )
             )
             dataset = await session.get(Dataset, UUID(dataset_id))
             assert job is not None and item is not None and dataset is not None
@@ -202,6 +216,7 @@ async def test_results_are_owner_scoped_and_expose_individual_statistics(
                 processing_item_id=item.id,
                 object_key="results/test/ndvi.tif",
                 index_name="NDVI",
+                analysis_scope=AnalysisScope.ROI,
                 width=2,
                 height=2,
                 valid_pixel_count=4,
@@ -251,6 +266,9 @@ async def test_results_are_owner_scoped_and_expose_individual_statistics(
         assert body["overview"]["analyzed_pixels"] == 4
         assert body["table"]["rows"][0]["mean"] == 0.5
         assert body["table"]["rows"][0]["valid_pixels"] == 4
+        assert body["table"]["rows"][0]["analysis_scope"] == "roi"
+        assert body["overview"]["analyzed_pixels_roi"] == 4
+        assert body["overview"]["analyzed_pixels_full_image"] == 0
         assert body["files"][0]["checksum_sha256"] == "a" * 64
         assert "internal_traceback" not in str(body)
 
@@ -275,16 +293,44 @@ async def test_finished_job_can_request_idempotent_exports(domain_app: FastAPI) 
 
         requested = await client.post(
             f"/api/v1/processing-jobs/{job_id}/exports",
-            json={"formats": ["csv", "complete"]},
+            json={
+                "formats": [
+                    "csv",
+                    "summary_xlsx",
+                    "rasters_roi",
+                    "rasters_full_image",
+                    "complete",
+                ]
+            },
         )
         repeated = await client.post(
             f"/api/v1/processing-jobs/{job_id}/exports",
-            json={"formats": ["csv", "complete"]},
+            json={
+                "formats": [
+                    "csv",
+                    "summary_xlsx",
+                    "rasters_roi",
+                    "rasters_full_image",
+                    "complete",
+                ]
+            },
         )
         assert requested.status_code == 202
-        assert {artifact["artifact_type"] for artifact in requested.json()} == {"csv", "bundle_zip"}
-        assert {artifact["artifact_type"] for artifact in repeated.json()} == {"csv", "bundle_zip"}
-        assert len(domain_app.state.resources.celery.tasks) == 2
+        assert {artifact["artifact_type"] for artifact in requested.json()} == {
+            "csv",
+            "summary_xlsx",
+            "roi_rasters_zip",
+            "full_image_rasters_zip",
+            "bundle_zip",
+        }
+        assert {artifact["artifact_type"] for artifact in repeated.json()} == {
+            "csv",
+            "summary_xlsx",
+            "roi_rasters_zip",
+            "full_image_rasters_zip",
+            "bundle_zip",
+        }
+        assert len(domain_app.state.resources.celery.tasks) == 3
         assert domain_app.state.resources.celery.tasks[-1]["name"] == "spectral.export.generate"
 
     async with client_for(domain_app, SECOND_USER) as other:
@@ -315,11 +361,25 @@ async def test_job_freezes_formula_roi_band_mapping_and_input_checksums(
             assert {
                 value["formula_version"] for value in job.reproducibility_snapshot["indices"]
             } == {"1.0.0"}
-            ndvi = next(item for item in items if item.index_name == "NDVI")
+            ndvi = next(
+                item
+                for item in items
+                if item.index_name == "NDVI" and item.analysis_scope is AnalysisScope.ROI
+            )
+            full_ndvi = next(
+                item
+                for item in items
+                if item.index_name == "NDVI"
+                and item.analysis_scope is AnalysisScope.FULL_IMAGE
+            )
             assert ndvi.formula_version == "1.0.0"
             assert ndvi.formula_expression == "(NIR - RED) / (NIR + RED)"
             assert {asset["band"] for asset in ndvi.input_snapshot} == {"NIR", "RED"}
             assert all(len(str(asset["checksum_sha256"])) == 64 for asset in ndvi.input_snapshot)
+            assert full_ndvi.roi_version_id is None
+            assert full_ndvi.roi_snapshot == {"scope": "full_image", "roi_applied": False}
+            assert job.configuration_snapshot["analysis_scopes"] == ["roi", "full_image"]
+            assert job.reproducibility_snapshot["analysis_scopes"] == ["roi", "full_image"]
             frozen = json.dumps(job.reproducibility_snapshot, sort_keys=True)
             asset = await session.scalar(
                 select(BandAsset).where(BandAsset.capture_id == ndvi.capture_id)

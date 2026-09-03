@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from spectral_api.dependencies import CurrentUser, get_session
 from spectral_api.domain.models import (
+    AnalysisScope,
     Capture,
     IndexResult,
     ProcessingItem,
@@ -61,6 +62,7 @@ TERMINAL_JOBS = {
 def _request_hash(dataset_id: UUID, payload: ProcessingJobCreate) -> str:
     canonical = {
         "dataset_id": str(dataset_id),
+        "analysis_scopes": ["roi", "full_image"],
         "indices": [item.model_dump(mode="json") for item in payload.indices],
         "capture_ids": sorted(str(value) for value in (payload.capture_ids or [])),
         "timeout_seconds": payload.timeout_seconds,
@@ -115,6 +117,7 @@ async def _job_response(session: AsyncSession, job: ProcessingJob) -> Processing
                 capture_id=item.capture_id,
                 capture=item.error_capture or (capture.capture_key if capture else None),
                 index_name=item.index_name,
+                analysis_scope=item.analysis_scope,
                 formula_version=item.formula_version,
                 state=item.state,
                 attempts=item.attempts,
@@ -270,7 +273,9 @@ async def _clone_job(
     pending: list[ProcessingItem] = []
     now = datetime.now(UTC)
     for source_item in source_items:
-        has_roi = bool(source_item.roi_snapshot and source_item.roi_version_id)
+        has_required_context = source_item.analysis_scope is AnalysisScope.FULL_IMAGE or bool(
+            source_item.roi_snapshot and source_item.roi_version_id
+        )
         item = ProcessingItem(
             id=uuid4(),
             project_id=source_item.project_id,
@@ -281,23 +286,30 @@ async def _clone_job(
             roi_id=source_item.roi_id,
             roi_version_id=source_item.roi_version_id,
             index_name=source_item.index_name,
+            analysis_scope=source_item.analysis_scope,
             formula_version=source_item.formula_version,
             formula_expression=source_item.formula_expression,
             parameters_snapshot=deepcopy(source_item.parameters_snapshot),
             input_snapshot=deepcopy(source_item.input_snapshot),
             band_mapping_snapshot=deepcopy(source_item.band_mapping_snapshot),
             roi_snapshot=deepcopy(source_item.roi_snapshot),
-            state=ProcessingItemState.PENDING if has_roi else ProcessingItemState.SKIPPED,
+            state=(
+                ProcessingItemState.PENDING
+                if has_required_context
+                else ProcessingItemState.SKIPPED
+            ),
             max_attempts=source_item.max_attempts,
-            celery_task_id=str(uuid4()) if has_roi else None,
-            finished_at=None if has_roi else now,
-            error_code=None if has_roi else source_item.error_code or "missing_roi",
-            error_message=None if has_roi else source_item.error_message,
+            celery_task_id=str(uuid4()) if has_required_context else None,
+            finished_at=None if has_required_context else now,
+            error_code=(
+                None if has_required_context else source_item.error_code or "missing_roi"
+            ),
+            error_message=None if has_required_context else source_item.error_message,
             error_capture=source_item.error_capture,
-            error_file=source_item.error_file if not has_roi else None,
+            error_file=source_item.error_file if not has_required_context else None,
         )
         session.add(item)
-        if has_roi:
+        if has_required_context:
             pending.append(item)
     job.total_items = len(source_items)
     job.skipped_items = len(source_items) - len(pending)
@@ -388,6 +400,7 @@ async def create_processing_job(
         selected_statistics,
         recipe,
     )
+    reproducibility_snapshot["analysis_scopes"] = ["roi", "full_image"]
     job = ProcessingJob(
         id=uuid4(),
         project_id=dataset.project_id,
@@ -404,6 +417,7 @@ async def create_processing_job(
             },
             "parameters": {str(item["index"]): item["parameters"] for item in index_definitions},
             "statistics": selected_statistics,
+            "analysis_scopes": ["roi", "full_image"],
             "recipe_id": str(recipe.id) if recipe else None,
             "timeout_seconds": payload.timeout_seconds,
             "max_attempts": payload.max_attempts,
@@ -421,42 +435,50 @@ async def create_processing_job(
         frozen = provenance[capture.id]
         for definition in index_definitions:
             index_name = str(definition["index"])
-            item = ProcessingItem(
-                id=uuid4(),
-                project_id=dataset.project_id,
-                owner_id=user.id,
-                job_id=job.id,
-                dataset_id=dataset.id,
-                capture_id=capture.id,
-                roi_id=frozen.roi_id,
-                roi_version_id=frozen.roi_version_id,
-                index_name=index_name,
-                formula_version=str(definition["formula_version"]),
-                formula_expression=str(definition["formula"]),
-                parameters_snapshot=dict(definition["parameters"]),
-                input_snapshot=frozen.inputs_by_index[index_name],
-                band_mapping_snapshot=frozen.mappings_by_index[index_name],
-                roi_snapshot=frozen.roi_snapshot,
-                state=(
-                    ProcessingItemState.PENDING
-                    if frozen.roi_version_id
-                    else ProcessingItemState.SKIPPED
-                ),
-                max_attempts=payload.max_attempts,
-                celery_task_id=str(uuid4()) if frozen.roi_version_id else None,
-                finished_at=None if frozen.roi_version_id else now,
-                error_code=None if frozen.roi_version_id else "missing_roi",
-                error_message=(
-                    None
-                    if frozen.roi_version_id
-                    else "Nenhuma ROI ativa foi definida para esta captura"
-                ),
-                error_capture=capture.capture_key,
-            )
-            session.add(item)
-            if frozen.roi_version_id:
-                pending.append(item)
-    job.total_items = len(captures) * len(index_definitions)
+            for analysis_scope in (AnalysisScope.ROI, AnalysisScope.FULL_IMAGE):
+                uses_roi = analysis_scope is AnalysisScope.ROI
+                runnable = not uses_roi or frozen.roi_version_id is not None
+                item = ProcessingItem(
+                    id=uuid4(),
+                    project_id=dataset.project_id,
+                    owner_id=user.id,
+                    job_id=job.id,
+                    dataset_id=dataset.id,
+                    capture_id=capture.id,
+                    roi_id=frozen.roi_id if uses_roi else None,
+                    roi_version_id=frozen.roi_version_id if uses_roi else None,
+                    index_name=index_name,
+                    analysis_scope=analysis_scope,
+                    formula_version=str(definition["formula_version"]),
+                    formula_expression=str(definition["formula"]),
+                    parameters_snapshot=dict(definition["parameters"]),
+                    input_snapshot=deepcopy(frozen.inputs_by_index[index_name]),
+                    band_mapping_snapshot=deepcopy(frozen.mappings_by_index[index_name]),
+                    roi_snapshot=(
+                        deepcopy(frozen.roi_snapshot)
+                        if uses_roi
+                        else {"scope": "full_image", "roi_applied": False}
+                    ),
+                    state=(
+                        ProcessingItemState.PENDING
+                        if runnable
+                        else ProcessingItemState.SKIPPED
+                    ),
+                    max_attempts=payload.max_attempts,
+                    celery_task_id=str(uuid4()) if runnable else None,
+                    finished_at=None if runnable else now,
+                    error_code=None if runnable else "missing_roi",
+                    error_message=(
+                        None
+                        if runnable
+                        else "Nenhuma ROI ativa foi definida para esta captura"
+                    ),
+                    error_capture=capture.capture_key,
+                )
+                session.add(item)
+                if runnable:
+                    pending.append(item)
+    job.total_items = len(captures) * len(index_definitions) * 2
     job.skipped_items = job.total_items - len(pending)
     job.processed_items = job.skipped_items
     if not pending:
@@ -592,7 +614,9 @@ async def retry_processing_item(
     job = await session.get(ProcessingJob, item.job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Processing job not found")
-    if not item.roi_snapshot or item.roi_version_id is None:
+    if item.analysis_scope is AnalysisScope.ROI and (
+        not item.roi_snapshot or item.roi_version_id is None
+    ):
         raise HTTPException(
             status_code=409,
             detail="This item has no frozen ROI; create a new configured job instead",

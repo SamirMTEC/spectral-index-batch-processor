@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from spectral_api.domain.models import ProcessingItemState, ProcessingJobState
+from spectral_api.domain.models import AnalysisScope, ProcessingItemState, ProcessingJobState
 
 IndexName = Literal["NDVI", "GNDVI", "SAVI", "VARI", "EXG"]
 
@@ -68,6 +68,7 @@ class ProcessingItemResponse(BaseModel):
     capture_id: UUID | None
     capture: str | None
     index_name: str
+    analysis_scope: AnalysisScope
     formula_version: str
     state: ProcessingItemState
     attempts: int

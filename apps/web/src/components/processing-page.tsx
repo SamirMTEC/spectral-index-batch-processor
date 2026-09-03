@@ -231,7 +231,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
         }
       />
       <PageHeader
-        description="Selecione os índices e confirme os parâmetros. Cada combinação de repetição e índice é processada isoladamente."
+        description="Selecione os índices e confirme os parâmetros. Cada índice é calculado separadamente para a ROI e para a imagem completa."
         eyebrow="Pipeline científico"
         title="Processamento"
       />
@@ -458,6 +458,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
                 <tr>
                   <th className="py-2">Repetição</th>
                   <th>Índice</th>
+                  <th>Área analisada</th>
                   <th>Estado</th>
                   <th>Tentativas</th>
                   <th>Resultado</th>
@@ -477,6 +478,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
                         fórmula {item.formula_version}
                       </small>
                     </td>
+                    <td>{scopeLabel(item.analysis_scope)}</td>
                     <td>
                       <StatusBadge value={item.state} />
                       {item.message && (
@@ -527,6 +529,10 @@ function requiredBands(name: SpectralIndexName) {
   if (name === "NDVI" || name === "SAVI") return "NIR + Red";
   if (name === "GNDVI") return "NIR + Green";
   return "Green + Red + Blue";
+}
+
+function scopeLabel(value: "roi" | "full_image") {
+  return value === "roi" ? "Recorte da ROI" : "Imagem completa";
 }
 
 function formatDuration(seconds: number) {

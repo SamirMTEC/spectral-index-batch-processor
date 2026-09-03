@@ -288,6 +288,20 @@ Fairness limita itens simultâneos por projeto/usuário. Mensagens muito grandes
 
 ## 10. Fase H — execução de um ProcessingItem
 
+### 10.1 Escopos de análise
+
+Cada combinação `captura × índice` gera dois itens independentes e identificados no
+snapshot imutável:
+
+- `roi`: aplica a máscara da ROI confirmada; sem ROI, somente este item é marcado
+  como `skipped`;
+- `full_image`: calcula o mesmo índice sobre toda a grade original, preservando as
+  máscaras de NoData e pixels inválidos.
+
+Estatísticas e GeoTIFFs nunca são agregados entre escopos. O pacote completo separa
+os rasters em `rasters/roi/` e `rasters/full_image/`, e exports específicos permitem
+baixar apenas um desses conjuntos.
+
 Estágios recomendados e pesos iniciais de progresso:
 
 | Estágio | Peso | Operação |

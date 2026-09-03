@@ -30,6 +30,28 @@ interface SelectedFile {
   relativePath: string;
 }
 
+function fileForUpload(
+  files: Map<string, File>,
+  serverPath: string,
+): File | undefined {
+  const exact = files.get(serverPath);
+  if (exact) return exact;
+
+  // The backend canonically stores paths with POSIX separators and NFC Unicode.
+  // `webkitRelativePath` can differ on Windows, so match the canonical spelling
+  // before falling back to a unique filename match.
+  const canonicalPath = serverPath.replaceAll("\\", "/").normalize("NFC");
+  const canonical = files.get(canonicalPath);
+  if (canonical) return canonical;
+
+  const filename = canonicalPath.split("/").at(-1);
+  if (!filename) return undefined;
+  const candidates = [...files.entries()].filter(([path]) =>
+    path.replaceAll("\\", "/").normalize("NFC").endsWith(`/${filename}`),
+  );
+  return candidates.length === 1 ? candidates[0]?.[1] : undefined;
+}
+
 function humanSize(bytes: number) {
   if (bytes < 1024) return `${String(bytes)} B`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -132,7 +154,10 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
   ) {
     const controller = new AbortController();
     controllers.current.set(item.id, controller);
-    const type = file.type || "application/octet-stream";
+    // The API signs the object with this exact content type. Browsers often infer
+    // `image/tiff` for TIFF files; sending that inferred type would invalidate the
+    // S3/MinIO signature even though the file itself is valid.
+    const type = "application/octet-stream";
     try {
       if (item.method === "single" && item.upload_url) {
         await putBlob(
@@ -234,8 +259,18 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
           while (cursor < queue.length) {
             const item = queue[cursor++];
             if (!item) continue;
-            const file = filesByPath.current.get(item.client_relative_path);
-            if (file) await uploadObject(session, item, file);
+            const file = fileForUpload(filesByPath.current, item.client_relative_path);
+            if (!file) {
+              setError(
+                `Não foi possível localizar ${item.client_relative_path} na seleção local. Selecione a pasta novamente.`,
+              );
+              replaceObject(
+                session.id,
+                await api.markUploadFailed(session.id, item.id),
+              );
+              continue;
+            }
+            await uploadObject(session, item, file);
           }
         },
       );
@@ -266,7 +301,7 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
   }
 
   async function retry(session: UploadSession, item: UploadObject) {
-    const file = filesByPath.current.get(item.client_relative_path);
+    const file = fileForUpload(filesByPath.current, item.client_relative_path);
     if (!file) {
       setError(
         "Selecione novamente o arquivo para tentar após recarregar a página.",

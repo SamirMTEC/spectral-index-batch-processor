@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from spectral_api.domain.models import AnalysisScope
+
 
 class ResultOverview(BaseModel):
     dataset_id: UUID
@@ -15,6 +17,8 @@ class ResultOverview(BaseModel):
     image_count: int
     indices: list[str]
     analyzed_pixels: int
+    analyzed_pixels_roi: int
+    analyzed_pixels_full_image: int
     error_count: int
     analyzed_at: datetime | None
 
@@ -26,6 +30,7 @@ class ResultTableRow(BaseModel):
     repetition: str | None
     capture: str | None
     index_name: str
+    analysis_scope: AnalysisScope
     mean: float | None
     median: float | None
     min: float | None
@@ -45,11 +50,13 @@ class ResultTable(BaseModel):
     total: int
     treatments: list[str]
     indices: list[str]
+    scopes: list[AnalysisScope]
 
 
 class TreatmentSummary(BaseModel):
     treatment: str | None
     index_name: str
+    analysis_scope: AnalysisScope
     n: int
     mean: float | None
     std: float | None
@@ -62,6 +69,7 @@ class ResultImage(BaseModel):
     repetition: str | None
     capture: str | None
     index_name: str
+    analysis_scope: AnalysisScope
     original_preview_url: str | None
     original_label: str | None
 
@@ -72,6 +80,7 @@ class ProcessingError(BaseModel):
     repetition: str | None
     problem: str
     error_code: str | None
+    analysis_scope: AnalysisScope
     recommended_action: str
 
 
@@ -92,6 +101,7 @@ class ReproducibilityInput(BaseModel):
     capture: str | None
     repetition: str | None
     index_name: str
+    analysis_scope: AnalysisScope
     formula_version: str
     formula: str
     parameters: dict[str, object]

@@ -27,6 +27,7 @@ RESULT_COLUMNS = [
     "treatment",
     "repetition",
     "index",
+    "analysis_scope",
     "mean",
     "median",
     "min",
@@ -40,9 +41,21 @@ RESULT_COLUMNS = [
     "roi_id",
     "processing_job_id",
 ]
+SUMMARY_COLUMNS = [
+    "project",
+    "dataset",
+    "treatment",
+    "index",
+    "analysis_scope",
+    "repetitions",
+    "mean",
+    "std",
+]
 ARTIFACT_PATHS = {
     "csv": "results.csv",
     "xlsx": "results.xlsx",
+    "summary_csv": "results_summary.csv",
+    "summary_xlsx": "results_summary.xlsx",
     "roi_json": "roi/roi.json",
     "manifest_json": "metadata/manifest.json",
     "processing_log": "logs/processing.log",
@@ -86,25 +99,27 @@ def _safe_manifest_value(value: Any) -> Any:
     return value
 
 
-def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+def _write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str] = RESULT_COLUMNS) -> None:
     with path.open("w", newline="", encoding="utf-8") as target:
-        writer = csv.DictWriter(target, fieldnames=RESULT_COLUMNS)
+        writer = csv.DictWriter(target, fieldnames=columns)
         writer.writeheader()
-        writer.writerows({column: row.get(column) for column in RESULT_COLUMNS} for row in rows)
+        writer.writerows({column: row.get(column) for column in columns} for row in rows)
 
 
-def _write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
+def _write_xlsx(
+    path: Path, rows: list[dict[str, Any]], columns: list[str] = RESULT_COLUMNS
+) -> None:
     workbook = Workbook(write_only=True)
     sheet = workbook.create_sheet("Results")
     header = []
-    for name in RESULT_COLUMNS:
+    for name in columns:
         header.append(name)
     sheet.append(header)
     for row in rows:
         sheet.append(
             [
                 str(value) if isinstance(value := row.get(column), UUID) else value
-                for column in RESULT_COLUMNS
+                for column in columns
             ]
         )
     workbook.save(path)
@@ -220,6 +235,7 @@ class ExportGenerator:
                         text(
                             """
                         SELECT item.id AS item_id, item.index_name, item.formula_version,
+                               item.analysis_scope,
                                item.formula_expression, item.parameters_snapshot,
                                item.input_snapshot, item.roi_snapshot, item.roi_id,
                                item.roi_version_id, item.state AS item_state, item.error_code,
@@ -333,8 +349,11 @@ class ExportGenerator:
         (root / "metadata").mkdir(parents=True, exist_ok=True)
         (root / "logs").mkdir(parents=True, exist_ok=True)
         rows = self._result_rows(snapshot)
+        summary_rows = self._summary_rows(snapshot, rows)
         _write_csv(root / "results.csv", rows)
         _write_xlsx(root / "results.xlsx", rows)
+        _write_csv(root / "results_summary.csv", summary_rows, SUMMARY_COLUMNS)
+        _write_xlsx(root / "results_summary.xlsx", summary_rows, SUMMARY_COLUMNS)
         (root / "roi" / "roi.json").write_text(
             json.dumps(snapshot["rois"], indent=2, default=str), encoding="utf-8"
         )
@@ -356,6 +375,7 @@ class ExportGenerator:
                 "treatment": item["treatment"],
                 "repetition": item["repetition"],
                 "index": item["index_name"],
+                "analysis_scope": item["analysis_scope"],
                 "mean": item["mean"],
                 "median": item["median"],
                 "min": item["min"],
@@ -373,6 +393,44 @@ class ExportGenerator:
             if item["result_object_key"]
         ]
 
+    def _summary_rows(
+        self, snapshot: dict[str, Any], rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Summarize repetition means by treatment and index."""
+        grouped: dict[tuple[str | None, str, str], list[float]] = {}
+        for row in rows:
+            value = row.get("mean")
+            if value is None:
+                continue
+            key = (
+                row.get("treatment"),
+                str(row["index"]),
+                str(row.get("analysis_scope") or "roi"),
+            )
+            grouped.setdefault(key, []).append(float(value))
+
+        job = snapshot["job"]
+        summaries: list[dict[str, Any]] = []
+        for (treatment, index, analysis_scope), values in sorted(
+            grouped.items(), key=lambda item: ((item[0][0] or ""), item[0][1], item[0][2])
+        ):
+            repetitions = len(values)
+            mean = sum(values) / repetitions
+            variance = sum((value - mean) ** 2 for value in values) / repetitions
+            summaries.append(
+                {
+                    "project": job["project_name"],
+                    "dataset": job["dataset_name"],
+                    "treatment": treatment,
+                    "index": index,
+                    "analysis_scope": analysis_scope,
+                    "repetitions": repetitions,
+                    "mean": mean,
+                    "std": variance**0.5,
+                }
+            )
+        return summaries
+
     def _manifest(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         job = snapshot["job"]
         warnings: list[dict[str, Any]] = []
@@ -382,6 +440,7 @@ class ExportGenerator:
                 record = {
                     "capture": item["capture_key"] or item["error_capture"],
                     "index": item["index_name"],
+                    "analysis_scope": item.get("analysis_scope") or "roi",
                     "error_code": item["error_code"],
                     "message": item["error_message"],
                     "file": item["error_file"],
@@ -416,6 +475,7 @@ class ExportGenerator:
                         f"state={item['item_state']}",
                         f"capture={item['capture_key'] or item['error_capture'] or '-'}",
                         f"index={item['index_name']}",
+                        f"scope={item.get('analysis_scope') or 'roi'}",
                         f"error_code={item['error_code'] or '-'}",
                         f"message={item['error_message'] or '-'}",
                     ]
@@ -425,6 +485,9 @@ class ExportGenerator:
 
     def _output_for(self, artifact: dict[str, Any], root: Path, snapshot: dict[str, Any]) -> Path:
         artifact_type = str(artifact["artifact_type"])
+        if artifact_type in {"roi_rasters_zip", "full_image_rasters_zip"}:
+            scope = "roi" if artifact_type == "roi_rasters_zip" else "full_image"
+            return self._raster_archive(root, snapshot, scope)
         if artifact_type != "bundle_zip":
             return root / ARTIFACT_PATHS[artifact_type]
         self._add_rasters(root, snapshot)
@@ -437,15 +500,49 @@ class ExportGenerator:
                     archive.write(source, source.relative_to(root.parent))
         return output
 
-    def _add_rasters(self, root: Path, snapshot: dict[str, Any]) -> None:
+    def _raster_archive(
+        self, root: Path, snapshot: dict[str, Any], analysis_scope: str
+    ) -> Path:
+        scoped_root = root.parent / (
+            "SpectralIndex_ROI" if analysis_scope == "roi" else "SpectralIndex_Full_Image"
+        )
+        self._add_rasters(scoped_root, snapshot, analysis_scope=analysis_scope)
+        output = root.parent / (
+            "SpectralIndex_ROI.zip"
+            if analysis_scope == "roi"
+            else "SpectralIndex_Full_Image.zip"
+        )
+        with zipfile.ZipFile(
+            output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
+        ) as archive:
+            for source in scoped_root.rglob("*"):
+                if source.is_file():
+                    archive.write(source, source.relative_to(scoped_root.parent))
+        return output
+
+    def _add_rasters(
+        self,
+        root: Path,
+        snapshot: dict[str, Any],
+        *,
+        analysis_scope: str | None = None,
+    ) -> None:
         for item in snapshot["items"]:
             key = item["result_object_key"]
-            if not key:
+            scope = str(item.get("analysis_scope") or "roi")
+            if not key or (analysis_scope is not None and scope != analysis_scope):
                 continue
             treatment = _safe_segment(item["treatment"], "unassigned")
             capture = _safe_segment(item["capture_key"], "capture")
             index = _safe_segment(item["index_name"], "index")
-            target = root / "rasters" / treatment / f"{capture}_{index}.tif"
+            scope_directory = "roi" if scope == "roi" else "full_image"
+            target = (
+                root
+                / "rasters"
+                / scope_directory
+                / treatment
+                / f"{capture}_{index}.tif"
+            )
             target.parent.mkdir(parents=True, exist_ok=True)
             extra = (
                 {"VersionId": item["result_object_version_id"]}

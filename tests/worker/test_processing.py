@@ -120,6 +120,43 @@ def test_windowed_item_calculation_rasterizes_polygon_by_pixel_center(tmp_path: 
     assert metadata["invalid_pixel_count"] == 6
 
 
+def test_windowed_item_calculation_processes_complete_image_without_roi(tmp_path: Path) -> None:
+    red_path = tmp_path / "red-full.tif"
+    nir_path = tmp_path / "nir-full.tif"
+    output_path = tmp_path / "ndvi-full.tif"
+    red = np.ones((4, 4), dtype=np.uint16)
+    nir = np.full((4, 4), 3, dtype=np.uint16)
+    write_band(red_path, red)
+    write_band(nir_path, nir)
+    processor = object.__new__(ProcessingItemProcessor)
+    item = {
+        "id": uuid4(),
+        "index_name": "NDVI",
+        "analysis_scope": "full_image",
+        "parameters_snapshot": {},
+        "pixel_coordinates": None,
+    }
+
+    statistics, metadata = processor._calculate_windowed(
+        item,
+        {},
+        {"RED": red_path, "NIR": nir_path},
+        output_path,
+        tmp_path,
+    )
+
+    with rasterio.open(output_path) as result:
+        mask = result.read_masks(1) > 0
+        np.testing.assert_array_equal(mask, np.ones((4, 4), dtype=np.bool_))
+        np.testing.assert_allclose(result.read(1), 0.5, rtol=1e-6, atol=1e-7)
+        assert result.tags()["SPECTRAL_ANALYSIS_SCOPE"] == "full_image"
+
+    assert statistics.count == 16
+    assert statistics.mean == 0.5
+    assert metadata["valid_pixel_count"] == 16
+    assert metadata["invalid_pixel_count"] == 0
+
+
 async def test_versioned_item_never_falls_back_to_current_band_associations() -> None:
     processor = object.__new__(ProcessingItemProcessor)
     with pytest.raises(MissingBandError, match="frozen"):
