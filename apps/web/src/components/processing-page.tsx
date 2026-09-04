@@ -322,7 +322,8 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
           <h3 className="text-sm font-semibold">Área de análise</h3>
           <p className="text-muted-foreground mt-1 text-xs leading-5">
             Cada opção produz estatísticas e GeoTIFFs independentes. Selecione
-            ambas para comparar o recorte com a cena completa.
+            ambas para comparar o recorte com a cena completa; os downloads
+            permanecem separados nos resultados.
           </p>
           <div className="mt-3 grid max-w-2xl gap-3 sm:grid-cols-2">
             {(
