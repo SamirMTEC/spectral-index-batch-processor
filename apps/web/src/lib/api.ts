@@ -1,4 +1,18 @@
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const externalAuthConfigured = Boolean(
+  import.meta.env.VITE_AUTH0_DOMAIN &&
+  import.meta.env.VITE_AUTH0_CLIENT_ID &&
+  import.meta.env.VITE_AUTH0_AUDIENCE,
+);
+
+type AccessTokenProvider = () => Promise<string>;
+let accessTokenProvider: AccessTokenProvider | null = null;
+
+export function configureAccessTokenProvider(
+  provider: AccessTokenProvider | null,
+) {
+  accessTokenProvider = provider;
+}
 
 export type ProjectStatus = "active" | "archived";
 export type RadiometryMode = "unknown" | "digital_number" | "reflectance";
@@ -454,7 +468,13 @@ function developmentUserId() {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("Content-Type", "application/json");
-  headers.set("X-Dev-User-Id", developmentUserId());
+  if (accessTokenProvider !== null) {
+    headers.set("Authorization", `Bearer ${await accessTokenProvider()}`);
+  } else if (externalAuthConfigured || import.meta.env.PROD) {
+    throw new Error("A autenticação ainda não está pronta. Entre novamente.");
+  } else {
+    headers.set("X-Dev-User-Id", developmentUserId());
+  }
   const response = await fetch(`${apiBaseUrl}/api/v1${path}`, {
     ...options,
     headers,
@@ -472,8 +492,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 async function requestBlob(path: string): Promise<string> {
+  const headers = new Headers();
+  if (accessTokenProvider !== null) {
+    headers.set("Authorization", `Bearer ${await accessTokenProvider()}`);
+  } else if (externalAuthConfigured || import.meta.env.PROD) {
+    throw new Error("A autenticação ainda não está pronta. Entre novamente.");
+  } else {
+    headers.set("X-Dev-User-Id", developmentUserId());
+  }
   const response = await fetch(`${apiBaseUrl}/api/v1${path}`, {
-    headers: { "X-Dev-User-Id": developmentUserId() },
+    headers,
   });
   if (!response.ok) {
     throw new Error(

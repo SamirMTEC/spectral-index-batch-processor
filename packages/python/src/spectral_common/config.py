@@ -76,6 +76,8 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:5173", "http://127.0.0.1:5173"]
     )
     dev_auth_enabled: bool | None = None
+    auth0_domain: str | None = None
+    auth0_audience: str | None = None
 
     @field_validator("cors_origins")
     @classmethod
@@ -110,6 +112,25 @@ class Settings(BaseSettings):
             raise ValueError(f"log_level must be one of {sorted(allowed)}")
         return normalized
 
+    @field_validator("auth0_domain")
+    @classmethod
+    def normalize_auth0_domain(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        normalized = value.strip().removeprefix("https://").rstrip("/")
+        parsed = urlsplit(f"https://{normalized}")
+        if (
+            not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.port is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Auth0 domain must be a hostname without path or credentials")
+        return normalized
+
     @model_validator(mode="after")
     def enforce_deployed_security_defaults(self) -> Self:
         if self.environment in {"staging", "production"}:
@@ -117,6 +138,8 @@ class Settings(BaseSettings):
                 raise ValueError("development authentication cannot be enabled when deployed")
             if any(not origin.startswith("https://") for origin in self.cors_origins):
                 raise ValueError("deployed CORS origins must use HTTPS")
+            if not self.auth0_domain or not self.auth0_audience:
+                raise ValueError("Auth0 domain and audience are required when deployed")
         if self.upload_max_session_bytes > self.upload_max_dataset_bytes:
             raise ValueError("upload session limit cannot exceed the dataset limit")
         if self.zip_max_entry_bytes > self.zip_max_uncompressed_bytes:
@@ -127,7 +150,12 @@ class Settings(BaseSettings):
 
     @property
     def database_dsn(self) -> str:
-        return self.database_url.get_secret_value()
+        dsn = self.database_url.get_secret_value()
+        if dsn.startswith("postgres://"):
+            return dsn.replace("postgres://", "postgresql+asyncpg://", 1)
+        if dsn.startswith("postgresql://"):
+            return dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return dsn
 
     @property
     def redis_dsn(self) -> str:
@@ -145,6 +173,12 @@ class Settings(BaseSettings):
         if self.dev_auth_enabled is not None:
             return self.dev_auth_enabled
         return self.environment in {"development", "test"}
+
+    @property
+    def auth0_issuer(self) -> str | None:
+        if self.auth0_domain is None:
+            return None
+        return f"https://{self.auth0_domain}/"
 
 
 @lru_cache

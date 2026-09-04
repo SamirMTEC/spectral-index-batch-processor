@@ -149,6 +149,9 @@ class User(TimestampMixin, Base):
     __tablename__ = "users"
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    auth_subject: Mapped[str | None] = mapped_column(
+        String(512), unique=True, index=True, nullable=True
+    )
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
 

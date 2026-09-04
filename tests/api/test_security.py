@@ -8,6 +8,7 @@ from typing import cast
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from pytest import MonkeyPatch
+from spectral_api import dependencies
 from spectral_api.security import (
     RateLimitMiddleware,
     RequestBodyLimitMiddleware,
@@ -203,6 +204,59 @@ async def test_cors_is_exact_origin_and_never_credentialed(domain_app: FastAPI) 
     assert trusted.headers["access-control-allow-origin"] == "http://localhost:5173"
     assert "access-control-allow-credentials" not in trusted.headers
     assert "access-control-allow-origin" not in hostile.headers
+
+
+async def test_production_auth_requires_bearer_token_and_isolates_subjects(
+    domain_app: FastAPI, monkeypatch: MonkeyPatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "dev_auth_enabled", False)
+    monkeypatch.setattr(settings, "auth0_domain", "tenant.auth0.com")
+    monkeypatch.setattr(settings, "auth0_audience", "https://api.example")
+
+    claims_by_token = {
+        "owner-token": {
+            "sub": "auth0|owner",
+            "email": "owner@example.test",
+            "email_verified": True,
+            "name": "Owner Researcher",
+        },
+        "attacker-token": {
+            "sub": "auth0|attacker",
+            "email": "attacker@example.test",
+            "email_verified": True,
+            "name": "Other Researcher",
+        },
+    }
+
+    async def validate(token: str, _settings: object) -> dict[str, object]:
+        return claims_by_token[token]
+
+    monkeypatch.setattr(dependencies, "validate_access_token", validate)
+    transport = ASGITransport(app=domain_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anonymous:
+        unauthorized = await anonymous.get("/api/v1/projects")
+    assert unauthorized.status_code == 401
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": "Bearer owner-token"},
+    ) as owner:
+        created = await owner.post("/api/v1/projects", json={"name": "Private study"})
+        owner_projects = await owner.get("/api/v1/projects")
+    assert created.status_code == 201
+    assert [project["name"] for project in owner_projects.json()] == ["Private study"]
+
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": "Bearer attacker-token"},
+    ) as attacker:
+        attacker_projects = await attacker.get("/api/v1/projects")
+        hidden = await attacker.get(f"/api/v1/projects/{created.json()['id']}")
+    assert attacker_projects.json() == []
+    assert hidden.status_code == 404
 
 
 async def test_streamed_body_limit_and_rate_limit_return_413_and_429() -> None:

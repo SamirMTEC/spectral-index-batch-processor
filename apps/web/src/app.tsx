@@ -4,6 +4,7 @@ import {
   Database,
   FolderPlus,
   Leaf,
+  LogOut,
   Plus,
   ScanLine,
   ShieldCheck,
@@ -35,6 +36,7 @@ import {
   Project,
   ProjectInput,
 } from "@/lib/api";
+import { useApplicationAuth } from "@/lib/auth-context";
 
 type LoadState<T> =
   | { status: "loading" }
@@ -83,6 +85,8 @@ function Brand() {
 
 function Shell({ children }: { children: React.ReactNode }) {
   const path = window.location.pathname;
+  const auth = useApplicationAuth();
+  const identity = auth.user?.name ?? auth.user?.email ?? "Pesquisador";
   return (
     <div className="app-shell bg-background text-foreground">
       <header className="app-header">
@@ -103,9 +107,19 @@ function Shell({ children }: { children: React.ReactNode }) {
             >
               Projetos
             </a>
-            <span className="app-identity">
-              <span className="app-identity__dot" /> Ambiente de pesquisa
+            <span className="app-identity" title={auth.user?.email}>
+              <span className="app-identity__dot" /> {identity}
             </span>
+            {auth.enabled && (
+              <Button
+                aria-label="Sair"
+                onClick={() => void auth.signOut()}
+                size="sm"
+                variant="ghost"
+              >
+                <LogOut /> Sair
+              </Button>
+            )}
           </nav>
         </div>
       </header>
@@ -305,7 +319,13 @@ function LandingPage() {
   );
 }
 
-function LoginPage() {
+function LoginPage({ returnTo = "/dashboard" }: { returnTo?: string }) {
+  const auth = useApplicationAuth();
+
+  useEffect(() => {
+    if (auth.enabled && auth.isAuthenticated) go(returnTo);
+  }, [auth.enabled, auth.isAuthenticated, returnTo]);
+
   return (
     <main className="login-layout">
       <aside className="login-aside">
@@ -330,15 +350,27 @@ function LoginPage() {
           </p>
           <Button
             className="mt-5 w-full"
-            onClick={() => go("/dashboard")}
+            disabled={auth.isLoading || Boolean(auth.error)}
+            onClick={() =>
+              auth.enabled ? void auth.signIn(returnTo) : go(returnTo)
+            }
             size="lg"
           >
-            Continuar para o workspace <ArrowRight />
+            {auth.isLoading ? "Verificando acesso…" : "Entrar com segurança"}{" "}
+            <ArrowRight />
           </Button>
+          {auth.error && (
+            <div className="login-note" role="alert">
+              <strong>Configuração necessária.</strong> {auth.error}
+            </div>
+          )}
           <div className="login-note">
-            <strong>Ambiente local.</strong> A identidade de desenvolvimento é
-            resolvida automaticamente. Em produção, este ponto de entrada deve
-            usar o provedor institucional configurado.
+            <strong>
+              {auth.enabled ? "Identidade protegida." : "Ambiente local."}
+            </strong>{" "}
+            {auth.enabled
+              ? "O acesso é autenticado pelo Auth0; sua senha não é armazenada pelo SpectralIndex."
+              : "A identidade de desenvolvimento é resolvida automaticamente."}
           </div>
         </div>
       </section>
@@ -1103,8 +1135,17 @@ function CaptureROIPage({ id }: { id: string }) {
 
 export function App() {
   const path = usePath();
+  const auth = useApplicationAuth();
   if (path === "/") return <LandingPage />;
   if (path === "/login") return <LoginPage />;
+  if (auth.isLoading) {
+    return (
+      <main className="app-main">
+        <LoadingState label="Verificando acesso seguro" />
+      </main>
+    );
+  }
+  if (!auth.isAuthenticated) return <LoginPage returnTo={path} />;
   if (path === "/dashboard") return <DashboardPage />;
   if (path === "/projects") return <ProjectsPage />;
   if (path === "/projects/new") return <NewProject />;

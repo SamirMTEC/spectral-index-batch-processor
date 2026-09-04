@@ -29,7 +29,7 @@ API e workers são stateless. `/tmp` é apenas espaço efêmero de trabalho; ori
 resultados, previews e exports ficam no R2. Nenhum volume local deve ser montado nos
 containers em produção.
 
-## Pré-requisitos e bloqueio de segurança
+## Pré-requisitos de segurança
 
 - Zona `classlab.com.br` ativa no mesmo account Cloudflare do Pages.
 - Registry de imagens com tags imutáveis por commit e digest.
@@ -37,13 +37,12 @@ containers em produção.
 - PostgreSQL gerenciado com TLS, backups automáticos e PITR.
 - Redis gerenciado com TLS, autenticação, persistência e política de memória definida.
 - Bucket R2 de produção e token de API limitado somente a esse bucket.
-- Provedor real de identidade integrado à API.
+- Tenant Auth0 com uma SPA e uma API RS256 configuradas.
 
-> **Gate obrigatório:** a identidade atual baseada em `X-Dev-User-Id` é exclusivamente
-> local. Em `production`, `SPECTRAL_DEV_AUTH_ENABLED=false` desativa essa ponte e a API
-> recusa rotas autenticadas. Não exponha a aplicação a pesquisadores antes de integrar e
-> testar um emissor OIDC/JWT. Cloudflare Access pode proteger superfícies administrativas,
-> mas não substitui automaticamente a identidade de domínio usada para ownership.
+Em produção, `X-Dev-User-Id` é desativado. A SPA usa Authorization Code + PKCE pelo SDK
+Auth0 e envia access token Bearer; a API valida assinatura RS256, `issuer`, `audience`,
+expiração e subject usando o JWKS do tenant. O `sub` é persistido como identidade imutável
+do usuário e todos os recursos continuam filtrados pelo owner interno.
 
 ## 1. Build e publicação dos containers
 
@@ -128,7 +127,8 @@ pelo secret manager. Segredos obrigatórios:
 - `SPECTRAL_REDIS_URL`;
 - `SPECTRAL_S3_ACCESS_KEY_ID`;
 - `SPECTRAL_S3_SECRET_ACCESS_KEY`;
-- credenciais/chaves do provedor de identidade quando ele for integrado.
+- `SPECTRAL_AUTH0_DOMAIN` (não secreto);
+- `SPECTRAL_AUTH0_AUDIENCE` (não secreto).
 
 Configuração recomendada inicial:
 
@@ -136,6 +136,8 @@ Configuração recomendada inicial:
 SPECTRAL_ENVIRONMENT=production
 SPECTRAL_LOG_LEVEL=INFO
 SPECTRAL_DEV_AUTH_ENABLED=false
+SPECTRAL_AUTH0_DOMAIN=SEU_TENANT.auth0.com
+SPECTRAL_AUTH0_AUDIENCE=https://api-spectral.classlab.com.br
 SPECTRAL_CORS_ORIGINS=["https://spectral.classlab.com.br"]
 SPECTRAL_API_MAX_REQUEST_BYTES=16777216
 SPECTRAL_API_REQUEST_TIMEOUT_SECONDS=30
@@ -216,16 +218,43 @@ Crie o projeto Pages conectado ao repositório:
 | Build output | `apps/web/dist` |
 | Node | `22.16.0` (`.nvmrc`) |
 | `VITE_API_BASE_URL` | `https://api-spectral.classlab.com.br` |
+| `VITE_AUTH0_DOMAIN` | `SEU_TENANT.auth0.com` |
+| `VITE_AUTH0_CLIENT_ID` | client ID público da SPA |
+| `VITE_AUTH0_AUDIENCE` | `https://api-spectral.classlab.com.br` |
 
 Os arquivos `_headers` e `_redirects` são copiados ao build e fornecem headers de
 segurança/cache e fallback da SPA. `VITE_*` é público; nunca coloque segredos nessas
 variáveis.
 
+## 8. Auth0
+
+No tenant Auth0:
+
+1. crie uma **Application → Single Page Application**;
+2. use `https://spectral.classlab.com.br` em Allowed Callback URLs, Allowed Logout URLs
+   e Allowed Web Origins;
+3. crie uma **API** com identifier `https://api-spectral.classlab.com.br` e algoritmo
+   RS256;
+4. habilite RBAC apenas quando houver papéis reais; ownership não depende de role;
+5. configure as variáveis Auth0 no Pages e na API/worker Railway;
+6. use um pesquisador de teste para validar que dois `sub` diferentes não enxergam os
+   mesmos projetos.
+
+Não use client secret no frontend. Alterar fórmula científica, owner ou permissões com
+claims do navegador não é permitido; a API deriva a identidade somente do token validado.
+
+## 9. Railway
+
+No Railway, cada processo é um serviço independente: `api`, `worker-ingestion` e
+`worker-processing`, além dos templates gerenciados PostgreSQL e Redis. Use os Dockerfiles
+existentes e referências de variáveis entre serviços. O roteiro exato está em
+[`infrastructure/railway/README.md`](../infrastructure/railway/README.md).
+
 Depois de um deploy Pages bem-sucedido: **Workers & Pages → projeto → Custom domains →
 Set up a domain → `spectral.classlab.com.br`**. Não crie apenas um CNAME manual: associe
 primeiro o domínio ao projeto Pages para que TLS e roteamento sejam provisionados.
 
-## 8. Ordem do deploy e smoke test
+## 10. Ordem do deploy e smoke test
 
 1. Build, testes, scan e push de imagens imutáveis.
 2. Backup automático saudável e restore recente validado.
@@ -272,4 +301,8 @@ Consulte [OPERATIONS.md](./OPERATIONS.md) para backup, alertas e runbooks.
 - [Cloudflare R2: presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/)
 - [Cloudflare R2: CORS](https://developers.cloudflare.com/r2/buckets/cors/)
 - [Cloudflare R2: bucket locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/)
+- [Railway: deploy FastAPI](https://docs.railway.com/guides/fastapi)
+- [Railway: databases](https://docs.railway.com/databases)
+- [Auth0 React SDK](https://auth0.com/docs/libraries/auth0-react)
+- [Auth0 FastAPI API](https://auth0.com/docs/quickstart/backend/fastapi)
 - [Docker: multi-stage builds](https://docs.docker.com/build/building/multi-stage/)

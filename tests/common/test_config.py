@@ -75,3 +75,35 @@ def test_processing_hard_timeout_must_exceed_soft_timeout() -> None:
             processing_task_soft_limit_seconds=300,
             processing_task_hard_limit_seconds=300,
         )
+
+
+def test_deployed_environment_requires_auth0_configuration() -> None:
+    with pytest.raises(ValidationError, match="Auth0 domain and audience"):
+        Settings(
+            database_url=SecretStr("postgresql://user:password@db/name"),
+            redis_url=SecretStr("redis://redis:6379/0"),
+            s3_bucket="test",
+            environment="production",
+            dev_auth_enabled=False,
+            cors_origins=["https://app.example"],
+        )
+
+
+def test_auth0_domain_is_normalized_and_rejects_urls_with_paths() -> None:
+    settings = Settings(
+        database_url=SecretStr("postgresql://user:password@db/name"),
+        redis_url=SecretStr("redis://redis:6379/0"),
+        s3_bucket="test",
+        auth0_domain="https://tenant.auth0.com/",
+    )
+    assert settings.auth0_domain == "tenant.auth0.com"
+    assert settings.auth0_issuer == "https://tenant.auth0.com/"
+    assert settings.database_dsn.startswith("postgresql+asyncpg://")
+
+    with pytest.raises(ValidationError, match="without path"):
+        Settings(
+            database_url=SecretStr("postgresql://user:password@db/name"),
+            redis_url=SecretStr("redis://redis:6379/0"),
+            s3_bucket="test",
+            auth0_domain="tenant.auth0.com/oauth",
+        )
