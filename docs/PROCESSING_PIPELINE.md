@@ -290,8 +290,8 @@ Fairness limita itens simultâneos por projeto/usuário. Mensagens muito grandes
 
 ### 10.1 Escopos de análise
 
-Cada combinação `captura × índice` gera dois itens independentes e identificados no
-snapshot imutável:
+Cada combinação `captura × índice` gera um item para cada escopo selecionado pelo
+pesquisador. A seleção também é registrada no snapshot imutável:
 
 - `roi`: aplica a máscara da ROI confirmada; sem ROI, somente este item é marcado
   como `skipped`;

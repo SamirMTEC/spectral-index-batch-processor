@@ -562,6 +562,9 @@ function Files({
   data: ProcessingResults;
   onCreate: (formats: ExportFormat[]) => Promise<void>;
 }) {
+  const hasRoiResults = data.table.scopes.includes("roi");
+  const hasFullImageResults = data.table.scopes.includes("full_image");
+
   return (
     <section className="space-y-3">
       <div className="surface p-5">
@@ -654,6 +657,7 @@ function Files({
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
+              disabled={!hasRoiResults}
               onClick={() => void onCreate(["rasters_roi"])}
               size="sm"
               variant="outline"
@@ -661,6 +665,7 @@ function Files({
               <Download /> Baixar índices da ROI
             </Button>
             <Button
+              disabled={!hasFullImageResults}
               onClick={() => void onCreate(["rasters_full_image"])}
               size="sm"
               variant="outline"
@@ -668,6 +673,11 @@ function Files({
               <Download /> Baixar índices da imagem completa
             </Button>
           </div>
+          {!hasRoiResults && !hasFullImageResults && (
+            <p className="text-muted-foreground mt-2 text-xs">
+              Nenhum GeoTIFF concluído está disponível para este job.
+            </p>
+          )}
         </div>
         <p className="text-muted-foreground mt-4 text-xs leading-5">
           O pacote completo reúne tabelas, GeoTIFFs, ROIs, configuração,

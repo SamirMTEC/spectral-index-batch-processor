@@ -337,6 +337,9 @@ resultados independentes para o recorte e para a imagem completa. Itens `full_im
 não referenciam uma ROI; itens `roi` congelam `roi_id`, `roi_version_id` e a geometria
 no snapshot.
 
+O job registra `analysis_scopes` no snapshot (`roi`, `full_image` ou ambos), de modo
+que somente os itens explicitamente solicitados sejam criados e processados.
+
 Unidade de isolamento: uma combinação `(job, capture, roi_version, index_version, parameter_set)`.
 
 | Campo | Tipo | Regra |

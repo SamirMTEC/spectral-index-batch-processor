@@ -21,6 +21,7 @@ import {
 } from "@/components/product-ui";
 import {
   api,
+  type AnalysisScope,
   type ProcessingItem,
   type ProcessingJob,
   type ProcessingRecipe,
@@ -49,6 +50,9 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
   const [activeId, setActiveId] = useState<string>();
   const [selected, setSelected] = useState<Set<SpectralIndexName>>(
     new Set(["NDVI"]),
+  );
+  const [analysisScopes, setAnalysisScopes] = useState<Set<AnalysisScope>>(
+    new Set(["roi", "full_image"]),
   );
   const [saviL, setSaviL] = useState(0.5);
   const [loading, setLoading] = useState(true);
@@ -107,19 +111,23 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
   );
 
   async function start() {
-    if (!selected.size) return;
+    if (!selected.size || !analysisScopes.size) return;
     setSubmitting(true);
     setError(undefined);
     try {
       const created = await api.createProcessingJob(
         datasetId,
         recipeId
-          ? { recipe_id: recipeId }
+          ? {
+              recipe_id: recipeId,
+              analysis_scopes: Array.from(analysisScopes),
+            }
           : {
               indices: Array.from(selected).map((name) => ({
                 name,
                 ...(name === "SAVI" ? { parameters: { L: saviL } } : {}),
               })),
+              analysis_scopes: Array.from(analysisScopes),
             },
         window.crypto.randomUUID(),
       );
@@ -231,7 +239,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
         }
       />
       <PageHeader
-        description="Selecione os índices e confirme os parâmetros. Cada índice é calculado separadamente para a ROI e para a imagem completa."
+        description="Selecione os índices, os parâmetros e se deseja processar a ROI, a imagem completa ou ambas."
         eyebrow="Pipeline científico"
         title="Processamento"
       />
@@ -310,6 +318,61 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
             </small>
           </label>
         )}
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold">Área de análise</h3>
+          <p className="text-muted-foreground mt-1 text-xs leading-5">
+            Cada opção produz estatísticas e GeoTIFFs independentes. Selecione
+            ambas para comparar o recorte com a cena completa.
+          </p>
+          <div className="mt-3 grid max-w-2xl gap-3 sm:grid-cols-2">
+            {(
+              [
+                {
+                  value: "roi",
+                  title: "Recorte da ROI",
+                  description:
+                    "Calcula somente os pixels dentro da ROI confirmada.",
+                },
+                {
+                  value: "full_image",
+                  title: "Imagem completa",
+                  description:
+                    "Calcula toda a grade original, respeitando NoData e pixels inválidos.",
+                },
+              ] as const
+            ).map((option) => (
+              <label
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition ${analysisScopes.has(option.value) ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}
+                key={option.value}
+              >
+                <input
+                  checked={analysisScopes.has(option.value)}
+                  className="mt-1"
+                  onChange={() =>
+                    setAnalysisScopes((current) => {
+                      const next = new Set(current);
+                      if (next.has(option.value)) next.delete(option.value);
+                      else next.add(option.value);
+                      return next;
+                    })
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  <strong className="text-sm">{option.title}</strong>
+                  <small className="text-muted-foreground mt-1 block text-xs leading-4">
+                    {option.description}
+                  </small>
+                </span>
+              </label>
+            ))}
+          </div>
+          {!analysisScopes.size && (
+            <p className="text-destructive mt-2 text-xs">
+              Selecione ao menos uma área de análise.
+            </p>
+          )}
+        </div>
         <div className="bg-muted/50 mt-6 max-w-2xl rounded-lg p-4">
           <p className="text-sm font-semibold">Salvar para reutilizar</p>
           <p className="text-muted-foreground mt-1 text-xs">
@@ -335,7 +398,9 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
         </div>
         <Button
           className="mt-6"
-          disabled={submitting || selected.size === 0}
+          disabled={
+            submitting || selected.size === 0 || analysisScopes.size === 0
+          }
           onClick={() => void start()}
         >
           {submitting ? <LoaderCircle className="animate-spin" /> : <Play />}

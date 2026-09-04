@@ -30,6 +30,11 @@ class ProcessingJobCreate(BaseModel):
     indices: list[ProcessingIndexInput] = Field(default_factory=list, max_length=5)
     recipe_id: UUID | None = None
     capture_ids: list[UUID] | None = Field(default=None, max_length=10_000)
+    analysis_scopes: list[AnalysisScope] = Field(
+        default_factory=lambda: [AnalysisScope.ROI, AnalysisScope.FULL_IMAGE],
+        min_length=1,
+        max_length=2,
+    )
     timeout_seconds: int = Field(default=300, ge=30, le=3_600)
     max_attempts: int = Field(default=3, ge=1, le=5)
 
@@ -39,6 +44,13 @@ class ProcessingJobCreate(BaseModel):
         names = [value.name for value in values]
         if len(names) != len(set(names)):
             raise ValueError("Each spectral index may be requested only once")
+        return values
+
+    @field_validator("analysis_scopes")
+    @classmethod
+    def unique_analysis_scopes(cls, values: list[AnalysisScope]) -> list[AnalysisScope]:
+        if len(values) != len(set(values)):
+            raise ValueError("Each analysis scope may be requested only once")
         return values
 
     @model_validator(mode="after")

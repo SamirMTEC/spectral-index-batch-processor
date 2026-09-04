@@ -591,14 +591,15 @@ export const api = {
     request<ProcessingJob>(`/processing-jobs/${jobId}`),
   createProcessingJob: (
     datasetId: string,
-    input:
+    input: (
       | {
           indices: {
             name: SpectralIndexName;
             parameters?: Record<string, number>;
           }[];
         }
-      | { recipe_id: string },
+      | { recipe_id: string }
+    ) & { analysis_scopes: AnalysisScope[] },
     idempotencyKey: string,
   ) =>
     request<ProcessingJob>(`/datasets/${datasetId}/processing-jobs`, {

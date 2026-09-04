@@ -127,6 +127,48 @@ async def test_job_creation_is_idempotent_and_uses_real_item_count(domain_app: F
         assert len(domain_app.state.resources.celery.tasks) == 4
 
 
+async def test_job_creation_respects_selected_analysis_scopes(domain_app: FastAPI) -> None:
+    async with client_for(domain_app) as client:
+        dataset_id, _ = await seed_ready_capture(domain_app, client)
+        created = await client.post(
+            f"/api/v1/datasets/{dataset_id}/processing-jobs",
+            json={
+                "indices": [{"name": "NDVI"}],
+                "analysis_scopes": ["full_image"],
+            },
+        )
+
+        assert created.status_code == 201
+        body = created.json()
+        assert body["total_items"] == 1
+        assert body["processed_items"] == 0
+        assert [item["analysis_scope"] for item in body["items"]] == ["full_image"]
+        assert len(domain_app.state.resources.celery.tasks) == 1
+
+
+async def test_job_creation_rejects_empty_or_duplicate_analysis_scopes(
+    domain_app: FastAPI,
+) -> None:
+    async with client_for(domain_app) as client:
+        dataset_id, _ = await seed_ready_capture(domain_app, client)
+        endpoint = f"/api/v1/datasets/{dataset_id}/processing-jobs"
+
+        empty = await client.post(
+            endpoint,
+            json={"indices": [{"name": "NDVI"}], "analysis_scopes": []},
+        )
+        duplicate = await client.post(
+            endpoint,
+            json={
+                "indices": [{"name": "NDVI"}],
+                "analysis_scopes": ["roi", "roi"],
+            },
+        )
+
+        assert empty.status_code == 422
+        assert duplicate.status_code == 422
+
+
 async def test_job_ownership_and_cancellation(domain_app: FastAPI) -> None:
     async with client_for(domain_app) as first:
         dataset_id, _ = await seed_ready_capture(domain_app, first)
@@ -178,9 +220,7 @@ async def test_missing_roi_skips_crop_but_keeps_full_image_runnable(domain_app: 
         assert body["processed_items"] == 1
         assert body["total_items"] == 2
         roi_item = next(item for item in body["items"] if item["analysis_scope"] == "roi")
-        full_item = next(
-            item for item in body["items"] if item["analysis_scope"] == "full_image"
-        )
+        full_item = next(item for item in body["items"] if item["analysis_scope"] == "full_image")
         assert roi_item["state"] == "skipped"
         assert roi_item["error_code"] == "missing_roi"
         assert full_item["state"] == "pending"
@@ -369,8 +409,7 @@ async def test_job_freezes_formula_roi_band_mapping_and_input_checksums(
             full_ndvi = next(
                 item
                 for item in items
-                if item.index_name == "NDVI"
-                and item.analysis_scope is AnalysisScope.FULL_IMAGE
+                if item.index_name == "NDVI" and item.analysis_scope is AnalysisScope.FULL_IMAGE
             )
             assert ndvi.formula_version == "1.0.0"
             assert ndvi.formula_expression == "(NIR - RED) / (NIR + RED)"
