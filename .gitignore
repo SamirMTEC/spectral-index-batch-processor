@@ -1,5 +1,6 @@
 # Environment and secrets
 .env
+.cloudflared/
 .env.*
 !.env.example
 !apps/web/.env.production.example

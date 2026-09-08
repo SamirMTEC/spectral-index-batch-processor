@@ -1,0 +1,42 @@
+# Use with: docker compose -f docker-compose.yml -f docker-compose.public-local.yml up -d
+# Reuses the existing local volumes. No credentials are stored here.
+x-public-environment: &public-environment
+  SPECTRAL_ENVIRONMENT: production
+  SPECTRAL_DEV_AUTH_ENABLED: "false"
+  SPECTRAL_AUTH0_DOMAIN: spectralindex-classlab.us.auth0.com
+  SPECTRAL_AUTH0_AUDIENCE: https://api-spectral.classlab.com.br
+  SPECTRAL_CORS_ORIGINS: '["https://spectral.classlab.com.br"]'
+
+services:
+  api:
+    environment:
+      <<: *public-environment
+      SPECTRAL_S3_PUBLIC_ENDPOINT_URL: https://storage-spectral.classlab.com.br
+  migrate:
+    environment:
+      <<: *public-environment
+  worker:
+    environment:
+      <<: *public-environment
+  processing-worker:
+    environment:
+      <<: *public-environment
+  minio:
+    environment:
+      MINIO_API_CORS_ALLOW_ORIGIN: https://spectral.classlab.com.br
+  tunnel:
+    image: cloudflare/cloudflared@sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38
+    restart: unless-stopped
+    command: ["tunnel", "--config", "/etc/cloudflared/config.yml", "run"]
+    depends_on:
+      api:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - ./infrastructure/cloudflare/tunnel.docker.yml:/etc/cloudflared/config.yml:ro
+      - ${USERPROFILE}/.cloudflared/17665fa3-4d92-4763-a289-077c38e438e6.json:/etc/cloudflared/credentials.json:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s

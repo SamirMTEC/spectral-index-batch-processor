@@ -29,6 +29,15 @@ API e workers são stateless. `/tmp` é apenas espaço efêmero de trabalho; ori
 resultados, previews e exports ficam no R2. Nenhum volume local deve ser montado nos
 containers em produção.
 
+### Alternativa: backend local
+
+Quando o backend precisar permanecer na máquina do pesquisador, use a topologia descrita
+em [`infrastructure/cloudflare/LOCAL_BACKEND.md`](../infrastructure/cloudflare/LOCAL_BACKEND.md).
+O Pages continua público, enquanto FastAPI e MinIO são publicados por um Tunnel nomeado.
+PostgreSQL, Redis e o console MinIO permanecem somente na rede local. Essa alternativa é
+adequada para desenvolvimento, demonstração e piloto; não substitui disponibilidade,
+backup e redundância de uma infraestrutura gerenciada.
+
 ## Pré-requisitos de segurança
 
 - Zona `classlab.com.br` ativa no mesmo account Cloudflare do Pages.

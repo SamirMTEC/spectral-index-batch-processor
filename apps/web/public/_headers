@@ -1,5 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api-spectral.classlab.com.br https://*.r2.cloudflarestorage.com; img-src 'self' blob: data: https://*.r2.cloudflarestorage.com; font-src 'self' data:; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api-spectral.classlab.com.br https://storage-spectral.classlab.com.br https://spectralindex-classlab.us.auth0.com https://*.r2.cloudflarestorage.com; frame-src https://spectralindex-classlab.us.auth0.com; img-src 'self' blob: data: https://storage-spectral.classlab.com.br https://*.r2.cloudflarestorage.com; font-src 'self' data:; upgrade-insecure-requests
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
   X-Content-Type-Options: nosniff

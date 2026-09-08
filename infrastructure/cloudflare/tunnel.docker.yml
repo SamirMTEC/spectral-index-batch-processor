@@ -1,0 +1,10 @@
+# Tunnel ID is public; credentials are mounted separately, never committed.
+tunnel: 17665fa3-4d92-4763-a289-077c38e438e6
+credentials-file: /etc/cloudflared/credentials.json
+metrics: 127.0.0.1:2000
+ingress:
+  - hostname: api-spectral.classlab.com.br
+    service: http://api:8000
+  - hostname: storage-spectral.classlab.com.br
+    service: http://minio:9000
+  - service: http_status:404

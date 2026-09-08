@@ -2,6 +2,20 @@
 
 Fundação funcional do monorepo do SpectralIndex. O projeto entrega frontend, API, worker, banco, fila, object storage local, migrations e um motor científico interno testável.
 
+## Site público com backend nesta máquina
+
+O frontend está em `https://spectral.classlab.com.br`. Nesta instalação, inicie
+API, workers, banco, MinIO e Cloudflare Tunnel com:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.public-local.yml up -d
+```
+
+Esse modo exige as credenciais locais do túnel e usa Auth0. Mantenha o computador
+ligado e o Docker em execução. Consulte [o guia de backend local](infrastructure/cloudflare/LOCAL_BACKEND.md)
+para reiniciar, parar, verificar ou voltar ao desenvolvimento. Antes de usar os
+comandos de desenvolvimento abaixo, pare o túnel conforme esse guia.
+
 ## Estrutura
 
 ```text

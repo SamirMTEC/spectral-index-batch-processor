@@ -1,0 +1,9 @@
+# Named Cloudflare Tunnel for the local backend mode.
+# Keep the tunnel token outside the repository.
+
+ingress:
+  - hostname: api-spectral.classlab.com.br
+    service: http://host.docker.internal:57705
+  - hostname: storage-spectral.classlab.com.br
+    service: http://host.docker.internal:57703
+  - service: http_status:404
