@@ -11,6 +11,8 @@ import { configureAccessTokenProvider } from "@/lib/api";
 const domain = import.meta.env.VITE_AUTH0_DOMAIN?.trim();
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID?.trim();
 const audience = import.meta.env.VITE_AUTH0_AUDIENCE?.trim();
+// Bump when public authentication settings change so immutable CDN assets are invalidated.
+const configurationRevision = "auth0-production-v1";
 const providedValues = [domain, clientId, audience].filter(Boolean).length;
 const isConfigured = providedValues === 3;
 const configurationError =
@@ -96,6 +98,7 @@ export function ApplicationAuthProvider({ children }: { children: ReactNode }) {
       cacheLocation="memory"
       clientId={clientId}
       domain={domain}
+      key={configurationRevision}
       onRedirectCallback={onRedirectCallback}
     >
       <Auth0Bridge>{children}</Auth0Bridge>
