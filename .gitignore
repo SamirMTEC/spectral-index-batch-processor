@@ -3,6 +3,8 @@
 .cloudflared/
 .env.*
 !.env.example
+!.env.production
+!.env.test
 !apps/web/.env.production.example
 
 # Python
