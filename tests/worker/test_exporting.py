@@ -61,33 +61,31 @@ def test_summary_export_aggregates_repetition_means_by_treatment_and_index(
             "mean": 0.9,
         },
         {"treatment": "T1", "index": "SAVI", "analysis_scope": "roi", "mean": 0.3},
+        {"treatment": "T1", "index": "CIGREEN", "analysis_scope": "roi", "mean": 0.7},
+        {"treatment": "T1", "index": "CIRED_EDGE", "analysis_scope": "roi", "mean": 0.8},
+        {"treatment": "T1", "index": "VARI", "analysis_scope": "roi", "mean": 0.1},
     ]
 
     summaries = generator._summary_rows(snapshot, rows)
     ndvi = next(
-        row
-        for row in summaries
-        if row["index"] == "NDVI" and row["analysis_scope"] == "roi"
+        row for row in summaries if row["index"] == "NDVI" and row["analysis_scope"] == "roi"
     )
     full_ndvi = next(
-        row
-        for row in summaries
-        if row["index"] == "NDVI" and row["analysis_scope"] == "full_image"
+        row for row in summaries if row["index"] == "NDVI" and row["analysis_scope"] == "full_image"
     )
     assert ndvi["repetitions"] == 2
     assert ndvi["mean"] == pytest.approx(0.3, abs=1e-12)
     assert ndvi["std"] == pytest.approx(0.1, abs=1e-12)
     assert full_ndvi["repetitions"] == 1
     assert full_ndvi["mean"] == pytest.approx(0.9, abs=1e-12)
+    assert {row["index"] for row in summaries} >= {"CIGREEN", "CIRED_EDGE", "VARI"}
 
     path = tmp_path / "results_summary.csv"
     _write_csv(path, summaries, SUMMARY_COLUMNS)
     with path.open(encoding="utf-8", newline="") as source:
         exported = list(csv.DictReader(source))
     exported_roi = next(
-        row
-        for row in exported
-        if row["index"] == "NDVI" and row["analysis_scope"] == "roi"
+        row for row in exported if row["index"] == "NDVI" and row["analysis_scope"] == "roi"
     )
     assert exported_roi["repetitions"] == "2"
     assert exported_roi["mean"] == "0.30000000000000004"

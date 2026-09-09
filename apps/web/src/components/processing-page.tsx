@@ -32,6 +32,8 @@ const indexNames: SpectralIndexName[] = [
   "NDVI",
   "GNDVI",
   "SAVI",
+  "CIGREEN",
+  "CIRED_EDGE",
   "VARI",
   "EXG",
 ];
@@ -268,7 +270,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
             ))}
           </select>
         </label>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {indexNames.map((name) => (
             <label
               className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition ${selected.has(name) ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}
@@ -290,7 +292,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
               />
               <span>
                 <strong className="text-sm">
-                  <TermHelp term={name === "EXG" ? "ExG" : name} />
+                  <TermHelp term={indexDisplayName(name)} />
                 </strong>
                 <small className="text-muted-foreground mt-1 block text-xs leading-4">
                   {requiredBands(name)}
@@ -593,8 +595,15 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 
 function requiredBands(name: SpectralIndexName) {
   if (name === "NDVI" || name === "SAVI") return "NIR + Red";
-  if (name === "GNDVI") return "NIR + Green";
+  if (name === "GNDVI" || name === "CIGREEN") return "NIR + Green";
+  if (name === "CIRED_EDGE") return "NIR + Red Edge";
   return "Green + Red + Blue";
+}
+
+function indexDisplayName(name: SpectralIndexName) {
+  if (name === "CIGREEN") return "CIgreen";
+  if (name === "CIRED_EDGE") return "CIred-edge";
+  return name === "EXG" ? "ExG" : name;
 }
 
 function scopeLabel(value: "roi" | "full_image") {

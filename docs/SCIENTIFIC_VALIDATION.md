@@ -3,7 +3,8 @@
 ## Escopo e versão auditada
 
 Esta validação cobre o motor numérico interno do SpectralIndex Batch Processor
-`0.1.0` e as fórmulas `1.0.0` de NDVI, GNDVI, SAVI, VARI e ExG. O objetivo é
+`0.1.0` e as fórmulas `1.0.0` de NDVI, GNDVI, SAVI, CIgreen, CIred-edge,
+VARI e ExG. O objetivo é
 verificar fórmulas, promoção de tipos, regras de validade, recorte por ROI e
 estatísticas descritivas. A auditoria não valida calibração radiométrica do
 sensor, alinhamento físico entre bandas ou interpretação agronômica.
@@ -37,6 +38,7 @@ divididos por 10).
 RED   = [[10, 20, 30], [40, 50, 60]]
 NIR   = [[30, 20, 10], [80,100,120]]
 GREEN = [[20, 30, 40], [50, 60, 70]]
+RED_EDGE = [[15, 20, 25], [40, 50, 60]]
 BLUE  = [[ 5, 10, 15], [20, 25, 30]]
 ```
 
@@ -62,10 +64,12 @@ textual.
 | NDVI | `uint8` | `[[0.5, 0, -0.5], [0.333333, 0.333333, 0.333333]]` |
 | GNDVI | `uint16` | `[[0.2, -0.2, -0.6], [0.230769, 0.25, 0.263158]]` |
 | SAVI (`L=0.5`) | `float32` | `[[0.666667, 0, -0.666667], [0.48, 0.483871, 0.486486]]` |
+| CIgreen | `uint16` | `[[0.5, -0.333333, -0.75], [0.6, 0.666667, 0.714286]]` |
+| CIred-edge | `uint16` | `[[1, 0, -0.6], [1, 1, 1]]` |
 | VARI | `uint16` | `[[0.4, 0.25, 0.181818], [0.142857, 0.117647, 0.1]]` |
 | ExG | `uint8` | `[[25, 30, 35], [40, 45, 50]]` |
 
-Para os cinco índices, a diferença absoluta máxima observada entre o motor e a
+Para os sete índices, a diferença absoluta máxima observada entre o motor e a
 referência NumPy foi `0.0` no ambiente auditado. A saída foi `float32` em todos
 os casos. Um teste adicional executa NDVI com os mesmos valores em `uint8`,
 `uint16` e `float32`, confirmando a promoção antes das operações e a ausência de
@@ -97,7 +101,8 @@ pixels válidos e 6 pixels externos, sem mudança de coordenadas entre janelas.
 No dataset de invalidade, apenas `(0,0)` e `(1,1)` permanecem válidos. Seus NDVI
 são, respectivamente, `0.5` e `1/3`. NoData, NaN, Inf e denominador zero
 permanecem com máscara inválida e valor `NaN`; não são convertidos para zero.
-NDVI, GNDVI, SAVI e VARI possuem ainda casos independentes de denominador zero.
+NDVI, GNDVI, SAVI, CIgreen, CIred-edge e VARI possuem ainda casos independentes
+de denominador zero.
 ExG não possui divisão.
 
 Bandas ausentes são rejeitadas separadamente para cada fórmula. Dimensões
@@ -162,4 +167,3 @@ necessária.
 - Antes de uma publicação científica, recomenda-se validar contra rasters reais
   pequenos, um software independente reconhecido e resultados revisados por um
   especialista do domínio.
-

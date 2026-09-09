@@ -11,6 +11,7 @@ from spectral_common.science_catalog import (
     SOFTWARE_VERSION,
     SUPPORTED_STATISTICS,
     FormulaDefinition,
+    canonicalize_index_name,
     get_formula_definition,
 )
 
@@ -25,6 +26,7 @@ __all__ = [
     "SUPPORTED_STATISTICS",
     "FormulaDefinition",
     "Settings",
+    "canonicalize_index_name",
     "get_formula_definition",
     "get_settings",
 ]

@@ -108,6 +108,36 @@ def test_savi_matches_manual_values_and_independent_numpy_reference() -> None:
     assert result.values.dtype == np.float32
 
 
+def test_cigreen_matches_manual_values_and_independent_numpy_reference() -> None:
+    green = UINT16_BANDS["GREEN"]
+    nir = UINT16_BANDS["NIR"]
+    manual = np.array(
+        [[0.5, -1 / 3, -0.75], [0.6, 2 / 3, 5 / 7]],
+        dtype=np.float32,
+    )
+    reference = ((_float64(nir) / _float64(green)) - 1).astype(np.float32)
+
+    _assert_scientific_values(reference, manual)
+    result = calculate_index("CIGREEN", {"NIR": nir, "GREEN": green})
+    _assert_scientific_values(result.values, reference)
+    assert result.values.dtype == np.float32
+
+
+def test_cired_edge_matches_manual_values_and_independent_numpy_reference() -> None:
+    red_edge = UINT16_BANDS["RED_EDGE"]
+    nir = UINT16_BANDS["NIR"]
+    manual = np.array(
+        [[1.0, 0.0, -0.6], [1.0, 1.0, 1.0]],
+        dtype=np.float32,
+    )
+    reference = ((_float64(nir) / _float64(red_edge)) - 1).astype(np.float32)
+
+    _assert_scientific_values(reference, manual)
+    result = calculate_index("CIRED_EDGE", {"NIR": nir, "RED_EDGE": red_edge})
+    _assert_scientific_values(result.values, reference)
+    assert result.values.dtype == np.float32
+
+
 def test_vari_matches_manual_values_and_independent_numpy_reference() -> None:
     red = UINT16_BANDS["RED"]
     green = UINT16_BANDS["GREEN"]
@@ -230,6 +260,8 @@ def test_nodata_nan_inf_zero_denominator_and_negative_values_follow_reference_ma
         ("NDVI", {"NIR": [[-2.0]], "RED": [[2.0]]}, None),
         ("GNDVI", {"NIR": [[-2.0]], "GREEN": [[2.0]]}, None),
         ("SAVI", {"NIR": [[-2.5]], "RED": [[2.0]]}, {"L": 0.5}),
+        ("CIGREEN", {"NIR": [[2.0]], "GREEN": [[0.0]]}, None),
+        ("CIRED_EDGE", {"NIR": [[2.0]], "RED_EDGE": [[0.0]]}, None),
         ("VARI", {"GREEN": [[2.0]], "RED": [[3.0]], "BLUE": [[5.0]]}, None),
     ],
 )
@@ -251,6 +283,8 @@ def test_each_denominator_formula_leaves_zero_denominator_invalid(
         ("NDVI", {"RED": np.ones((2, 2))}, "NIR"),
         ("GNDVI", {"NIR": np.ones((2, 2))}, "GREEN"),
         ("SAVI", {"RED": np.ones((2, 2))}, "NIR"),
+        ("CIGREEN", {"NIR": np.ones((2, 2))}, "GREEN"),
+        ("CIRED_EDGE", {"NIR": np.ones((2, 2))}, "RED_EDGE"),
         ("VARI", {"GREEN": np.ones((2, 2)), "RED": np.ones((2, 2))}, "BLUE"),
         ("EXG", {"GREEN": np.ones((2, 2)), "BLUE": np.ones((2, 2))}, "RED"),
     ],

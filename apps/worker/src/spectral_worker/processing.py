@@ -36,6 +36,8 @@ REQUIRED_BANDS = {
     "NDVI": ("NIR", "RED"),
     "GNDVI": ("NIR", "GREEN"),
     "SAVI": ("NIR", "RED"),
+    "CIGREEN": ("NIR", "GREEN"),
+    "CIRED_EDGE": ("NIR", "RED_EDGE"),
     "VARI": ("GREEN", "RED", "BLUE"),
     "EXG": ("GREEN", "RED", "BLUE"),
 }
@@ -223,10 +225,7 @@ class ProcessingItemProcessor:
             claimed["pixel_coordinates"] = roi_snapshot.get("pixel_coordinates") or claimed.get(
                 "legacy_pixel_coordinates"
             )
-            if (
-                claimed["analysis_scope"] == "roi"
-                and claimed["pixel_coordinates"] is None
-            ):
+            if claimed["analysis_scope"] == "roi" and claimed["pixel_coordinates"] is None:
                 raise ValueError("Processing item has no immutable ROI version")
             return claimed
 

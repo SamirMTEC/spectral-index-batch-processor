@@ -10,7 +10,12 @@ import numpy as np
 import numpy.typing as npt
 from affine import Affine
 from rasterio.crs import CRS
-from spectral_common import CURRENT_FORMULA_VERSIONS, FORMULA_DEFINITIONS, get_formula_definition
+from spectral_common import (
+    CURRENT_FORMULA_VERSIONS,
+    FORMULA_DEFINITIONS,
+    canonicalize_index_name,
+    get_formula_definition,
+)
 
 from spectral_engine.errors import (
     IncompatibleDimensionsError,
@@ -61,7 +66,7 @@ def calculate_index(
     formula_version: str | None = None,
 ) -> IndexResult:
     """Calculate one index, retaining invalid pixels as NaN plus an explicit mask."""
-    canonical_name = index_name.strip().upper()
+    canonical_name = canonicalize_index_name(index_name)
     try:
         scientific_definition = get_formula_definition(canonical_name, formula_version)
     except KeyError:
@@ -243,6 +248,7 @@ def _formula(
     green = bands.get("GREEN")
     blue = bands.get("BLUE")
     nir = bands.get("NIR")
+    red_edge = bands.get("RED_EDGE")
     if index_name in {"NDVI", "SAVI"} and red is not None and nir is not None:
         denominator = nir.values + red.values
         if index_name == "SAVI":
@@ -253,6 +259,12 @@ def _formula(
     if index_name == "GNDVI" and green is not None and nir is not None:
         denominator = nir.values + green.values
         return (nir.values - green.values) / denominator, denominator
+    if index_name == "CIGREEN" and green is not None and nir is not None:
+        denominator = green.values
+        return (nir.values / denominator) - 1, denominator
+    if index_name == "CIRED_EDGE" and red_edge is not None and nir is not None:
+        denominator = red_edge.values
+        return (nir.values / denominator) - 1, denominator
     if index_name == "VARI" and green is not None and red is not None and blue is not None:
         denominator = green.values + red.values - blue.values
         return (green.values - red.values) / denominator, denominator

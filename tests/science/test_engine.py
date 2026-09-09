@@ -27,6 +27,7 @@ def manual_bands() -> dict[str, np.ndarray[tuple[int, int], np.dtype[np.float64]
         "RED": np.array([[1, 2], [3, 4]], dtype=np.float64),
         "NIR": np.array([[3, 2], [1, 0]], dtype=np.float64),
         "GREEN": np.array([[2, 4], [6, 8]], dtype=np.float64),
+        "RED_EDGE": np.array([[1.5, 2], [2.5, 4]], dtype=np.float64),
         "BLUE": np.ones((2, 2), dtype=np.float64),
     }
 
@@ -51,6 +52,18 @@ def manual_bands() -> dict[str, np.ndarray[tuple[int, int], np.dtype[np.float64]
             ("NIR", "RED"),
             {"L": 0.5},
             np.array([[2 / 3, 0], [-2 / 3, -4 / 3]], dtype=np.float32),
+        ),
+        (
+            "CIGREEN",
+            ("NIR", "GREEN"),
+            None,
+            np.array([[0.5, -0.5], [-5 / 6, -1]], dtype=np.float32),
+        ),
+        (
+            "CIRED_EDGE",
+            ("NIR", "RED_EDGE"),
+            None,
+            np.array([[1, 0], [-0.6, -1]], dtype=np.float32),
         ),
         (
             "VARI",
@@ -105,6 +118,26 @@ def test_formula_version_is_explicit_and_unknown_versions_are_rejected() -> None
         calculate_index("NDVI", bands, formula_version="9.9.9")
 
 
+@pytest.mark.parametrize(
+    ("public_name", "expected_name", "bands"),
+    [
+        ("CIgreen", "CIGREEN", {"NIR": [[3.0]], "GREEN": [[2.0]]}),
+        ("CIred-edge", "CIRED_EDGE", {"NIR": [[3.0]], "RED_EDGE": [[2.0]]}),
+        ("CIrededge", "CIRED_EDGE", {"NIR": [[3.0]], "RED_EDGE": [[2.0]]}),
+    ],
+)
+def test_chlorophyll_index_public_names_resolve_to_stable_identifiers(
+    public_name: str,
+    expected_name: str,
+    bands: dict[str, list[list[float]]],
+) -> None:
+    result = calculate_index(public_name, bands)
+
+    assert result.index_name == expected_name
+    assert result.formula_version == "1.0.0"
+    np.testing.assert_allclose(result.values, [[0.5]], rtol=RTOL, atol=ATOL)
+
+
 def test_invalid_sources_roi_and_zero_denominator_remain_invalid() -> None:
     red = BandData(
         np.array(
@@ -123,6 +156,22 @@ def test_invalid_sources_roi_and_zero_denominator_remain_invalid() -> None:
     assert np.isnan(result.values[~expected_mask]).all()
     assert result.statistics.count == 1
     assert result.statistics.mean == pytest.approx(0.5, rel=RTOL, abs=ATOL)
+
+
+def test_chlorophyll_indices_preserve_nodata_nan_inf_roi_and_zero_denominator() -> None:
+    green = BandData(
+        np.array([[2.0, 0.0, -9999.0], [2.0, np.nan, 2.0]]),
+        nodata=-9999.0,
+    )
+    nir = np.array([[3.0, 3.0, 3.0], [np.inf, 3.0, 3.0]])
+    roi = np.array([[True, True, True], [True, True, False]])
+    result = calculate_index("CIGREEN", {"NIR": nir, "GREEN": green}, roi=roi)
+
+    expected_mask = np.array([[True, False, False], [False, False, False]])
+    np.testing.assert_array_equal(result.valid_mask, expected_mask)
+    np.testing.assert_allclose(result.values[0, 0], 0.5, rtol=RTOL, atol=ATOL)
+    assert np.isnan(result.values[~expected_mask]).all()
+    assert result.statistics.count == 1
 
 
 def test_negative_values_are_valid_when_formula_is_defined() -> None:

@@ -14,7 +14,7 @@ StatisticName = Literal["count", "mean", "median", "min", "max", "std", "p05", "
 class ProcessingRecipeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=2_000)
-    indices: list[ProcessingIndexInput] = Field(min_length=1, max_length=5)
+    indices: list[ProcessingIndexInput] = Field(min_length=1, max_length=7)
     statistics: list[StatisticName] = Field(min_length=1, max_length=10)
 
     @field_validator("name")

@@ -67,7 +67,7 @@ async def seed_ready_capture(app: FastAPI, client: AsyncClient) -> tuple[str, st
         )
         session.add(capture)
         await session.flush()
-        for position, code in enumerate(("BLUE", "GREEN", "RED", "NIR"), 1):
+        for position, code in enumerate(("BLUE", "GREEN", "RED", "RED_EDGE", "NIR"), 1):
             session.add(
                 BandAsset(
                     project_id=dataset.project_id,
@@ -444,6 +444,10 @@ async def test_recipe_is_owner_scoped_reusable_and_reprocess_creates_child_job(
                     {"name": "NDVI"},
                     {"name": "GNDVI"},
                     {"name": "SAVI", "parameters": {"L": 0.5}},
+                    {"name": "CIGREEN"},
+                    {"name": "CIRED_EDGE"},
+                    {"name": "VARI"},
+                    {"name": "EXG"},
                 ],
                 "statistics": ["mean", "median", "std", "p05", "p25", "p75", "p95"],
             },
@@ -458,7 +462,15 @@ async def test_recipe_is_owner_scoped_reusable_and_reprocess_creates_child_job(
         assert created.status_code == 201
         body = created.json()
         assert body["recipe_name"] == "Vegetação padrão"
-        assert set(body["indices"]) == {"NDVI", "GNDVI", "SAVI"}
+        assert set(body["indices"]) == {
+            "NDVI",
+            "GNDVI",
+            "SAVI",
+            "CIGREEN",
+            "CIRED_EDGE",
+            "VARI",
+            "EXG",
+        }
         source_id = UUID(body["id"])
         async with domain_app.state.session_factory() as session:
             source = await session.get(ProcessingJob, source_id)

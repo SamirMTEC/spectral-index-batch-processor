@@ -9,6 +9,7 @@ UINT8_BANDS: dict[str, npt.NDArray[np.uint8]] = {
     "RED": np.array([[10, 20, 30], [40, 50, 60]], dtype=np.uint8),
     "NIR": np.array([[30, 20, 10], [80, 100, 120]], dtype=np.uint8),
     "GREEN": np.array([[20, 30, 40], [50, 60, 70]], dtype=np.uint8),
+    "RED_EDGE": np.array([[15, 20, 25], [40, 50, 60]], dtype=np.uint8),
     "BLUE": np.array([[5, 10, 15], [20, 25, 30]], dtype=np.uint8),
 }
 
@@ -16,6 +17,7 @@ UINT16_BANDS: dict[str, npt.NDArray[np.uint16]] = {
     "RED": np.array([[100, 200, 300], [400, 500, 600]], dtype=np.uint16),
     "NIR": np.array([[300, 200, 100], [800, 1000, 1200]], dtype=np.uint16),
     "GREEN": np.array([[200, 300, 400], [500, 600, 700]], dtype=np.uint16),
+    "RED_EDGE": np.array([[150, 200, 250], [400, 500, 600]], dtype=np.uint16),
     "BLUE": np.array([[50, 100, 150], [200, 250, 300]], dtype=np.uint16),
 }
 

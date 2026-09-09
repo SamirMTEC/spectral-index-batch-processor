@@ -54,6 +54,12 @@ FORMULA_DEFINITIONS: dict[tuple[str, str], FormulaDefinition] = {
         frozenset({"L"}),
         (("L", 0.5),),
     ),
+    ("CIGREEN", "1.0.0"): FormulaDefinition(
+        "CIGREEN", "1.0.0", "(NIR / GREEN) - 1", ("NIR", "GREEN")
+    ),
+    ("CIRED_EDGE", "1.0.0"): FormulaDefinition(
+        "CIRED_EDGE", "1.0.0", "(NIR / RED_EDGE) - 1", ("NIR", "RED_EDGE")
+    ),
     ("VARI", "1.0.0"): FormulaDefinition(
         "VARI",
         "1.0.0",
@@ -69,14 +75,27 @@ CURRENT_FORMULA_VERSIONS = {
     "NDVI": "1.0.0",
     "GNDVI": "1.0.0",
     "SAVI": "1.0.0",
+    "CIGREEN": "1.0.0",
+    "CIRED_EDGE": "1.0.0",
     "VARI": "1.0.0",
     "EXG": "1.0.0",
 }
 
 
+def canonicalize_index_name(index: str) -> str:
+    """Normalize public spellings without changing the persisted scientific identity."""
+    normalized = index.strip().upper().replace(" ", "_")
+    aliases = {
+        "CI_GREEN": "CIGREEN",
+        "CIRED-EDGE": "CIRED_EDGE",
+        "CIREDEDGE": "CIRED_EDGE",
+    }
+    return aliases.get(normalized, normalized)
+
+
 def get_formula_definition(index: str, formula_version: str | None = None) -> FormulaDefinition:
     """Resolve an exact formula; callers must never silently fall back across versions."""
-    canonical = index.strip().upper()
+    canonical = canonicalize_index_name(index)
     resolved_version = formula_version or CURRENT_FORMULA_VERSIONS.get(canonical)
     if resolved_version is None or (canonical, resolved_version) not in FORMULA_DEFINITIONS:
         rendered = formula_version or "current"

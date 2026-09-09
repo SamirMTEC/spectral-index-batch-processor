@@ -157,6 +157,47 @@ def test_windowed_item_calculation_processes_complete_image_without_roi(tmp_path
     assert metadata["invalid_pixel_count"] == 0
 
 
+@pytest.mark.parametrize(
+    ("index_name", "denominator_band", "expected"),
+    [("CIGREEN", "GREEN", 0.5), ("CIRED_EDGE", "RED_EDGE", 0.5)],
+)
+def test_windowed_chlorophyll_indices_use_required_band_and_preserve_grid(
+    tmp_path: Path,
+    index_name: str,
+    denominator_band: str,
+    expected: float,
+) -> None:
+    denominator_path = tmp_path / f"{denominator_band.lower()}.tif"
+    nir_path = tmp_path / "nir.tif"
+    output_path = tmp_path / f"{index_name.lower()}.tif"
+    write_band(denominator_path, np.full((3, 3), 2, dtype=np.uint16))
+    write_band(nir_path, np.full((3, 3), 3, dtype=np.uint16))
+    processor = object.__new__(ProcessingItemProcessor)
+    item = {
+        "id": uuid4(),
+        "index_name": index_name,
+        "analysis_scope": "full_image",
+        "parameters_snapshot": {},
+        "pixel_coordinates": None,
+    }
+
+    statistics, metadata = processor._calculate_windowed(
+        item,
+        {},
+        {"NIR": nir_path, denominator_band: denominator_path},
+        output_path,
+        tmp_path,
+    )
+
+    with rasterio.open(output_path) as result:
+        np.testing.assert_allclose(result.read(1), expected, rtol=1e-6, atol=1e-7)
+        assert result.dtypes == ("float32",)
+        assert result.tags()["SPECTRAL_INDEX"] == index_name
+    assert statistics.count == 9
+    assert statistics.mean == expected
+    assert metadata["valid_pixel_count"] == 9
+
+
 async def test_versioned_item_never_falls_back_to_current_band_associations() -> None:
     processor = object.__new__(ProcessingItemProcessor)
     with pytest.raises(MissingBandError, match="frozen"):

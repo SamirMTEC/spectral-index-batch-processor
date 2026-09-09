@@ -215,7 +215,14 @@ export type ProcessingJobState =
   | "cancelled";
 export type ProcessingItemState =
   "pending" | "running" | "completed" | "skipped" | "failed";
-export type SpectralIndexName = "NDVI" | "GNDVI" | "SAVI" | "VARI" | "EXG";
+export type SpectralIndexName =
+  | "NDVI"
+  | "GNDVI"
+  | "SAVI"
+  | "CIGREEN"
+  | "CIRED_EDGE"
+  | "VARI"
+  | "EXG";
 export type AnalysisScope = "roi" | "full_image";
 
 export interface ProcessingStatistics {

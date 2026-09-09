@@ -24,6 +24,10 @@ const termDefinitions = {
   GNDVI:
     "Variação do NDVI que usa Green e NIR, sensível a diferenças de clorofila.",
   SAVI: "Índice que reduz a influência do solo usando um fator de ajuste L.",
+  CIgreen:
+    "Índice de clorofila que relaciona NIR e Green; valores inválidos e divisão por zero são excluídos.",
+  "CIred-edge":
+    "Índice de clorofila que relaciona NIR e Red Edge, preservando NoData e pixels inválidos.",
   VARI: "Índice de vegetação calculado apenas com as bandas visíveis Green, Red e Blue.",
   ExG: "Excesso de verde: realça a contribuição do canal Green em imagens RGB.",
   NoData:

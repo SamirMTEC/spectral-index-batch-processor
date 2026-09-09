@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from spectral_api.domain.models import AnalysisScope, ProcessingItemState, ProcessingJobState
 
-IndexName = Literal["NDVI", "GNDVI", "SAVI", "VARI", "EXG"]
+IndexName = Literal["NDVI", "GNDVI", "SAVI", "CIGREEN", "CIRED_EDGE", "VARI", "EXG"]
 
 
 class ProcessingIndexInput(BaseModel):
@@ -27,7 +27,7 @@ class ProcessingIndexInput(BaseModel):
 
 
 class ProcessingJobCreate(BaseModel):
-    indices: list[ProcessingIndexInput] = Field(default_factory=list, max_length=5)
+    indices: list[ProcessingIndexInput] = Field(default_factory=list, max_length=7)
     recipe_id: UUID | None = None
     capture_ids: list[UUID] | None = Field(default=None, max_length=10_000)
     analysis_scopes: list[AnalysisScope] = Field(
