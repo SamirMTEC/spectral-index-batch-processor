@@ -33,6 +33,7 @@ class FormulaDefinition:
     required_bands: tuple[str, ...]
     allowed_parameters: frozenset[str] = frozenset()
     default_parameters: tuple[tuple[str, float], ...] = ()
+    scientific_note: str | None = None
 
     def parameters_with_defaults(self, supplied: dict[str, float]) -> dict[str, float]:
         """Return a new parameter dictionary without mutating caller input."""
@@ -60,6 +61,19 @@ FORMULA_DEFINITIONS: dict[tuple[str, str], FormulaDefinition] = {
     ("CIRED_EDGE", "1.0.0"): FormulaDefinition(
         "CIRED_EDGE", "1.0.0", "(NIR / RED_EDGE) - 1", ("NIR", "RED_EDGE")
     ),
+    ("NDRE", "1.0.0"): FormulaDefinition(
+        "NDRE", "1.0.0", "(NIR - RED_EDGE) / (NIR + RED_EDGE)", ("NIR", "RED_EDGE")
+    ),
+    ("MCARI", "1.0.0"): FormulaDefinition(
+        "MCARI",
+        "1.0.0",
+        "((RED_EDGE - RED) - 0.2 * (RED_EDGE - GREEN)) * (RED_EDGE / RED)",
+        ("GREEN", "RED", "RED_EDGE"),
+        scientific_note=(
+            "A precisão do MCARI depende da posição espectral real da banda RedEdge do sensor, "
+            "usada aqui como representação da região próxima de 700 nm."
+        ),
+    ),
     ("VARI", "1.0.0"): FormulaDefinition(
         "VARI",
         "1.0.0",
@@ -77,6 +91,8 @@ CURRENT_FORMULA_VERSIONS = {
     "SAVI": "1.0.0",
     "CIGREEN": "1.0.0",
     "CIRED_EDGE": "1.0.0",
+    "NDRE": "1.0.0",
+    "MCARI": "1.0.0",
     "VARI": "1.0.0",
     "EXG": "1.0.0",
 }

@@ -34,6 +34,8 @@ const indexNames: SpectralIndexName[] = [
   "SAVI",
   "CIGREEN",
   "CIRED_EDGE",
+  "NDRE",
+  "MCARI",
   "VARI",
   "EXG",
 ];
@@ -297,6 +299,9 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
                 <small className="text-muted-foreground mt-1 block text-xs leading-4">
                   {requiredBands(name)}
                 </small>
+                <code className="text-muted-foreground mt-2 block text-[0.68rem] leading-4">
+                  {indexFormula(name)}
+                </code>
               </span>
             </label>
           ))}
@@ -596,8 +601,24 @@ function Metric({ label, value }: { label: string; value: number | string }) {
 function requiredBands(name: SpectralIndexName) {
   if (name === "NDVI" || name === "SAVI") return "NIR + Red";
   if (name === "GNDVI" || name === "CIGREEN") return "NIR + Green";
-  if (name === "CIRED_EDGE") return "NIR + Red Edge";
+  if (name === "CIRED_EDGE" || name === "NDRE") return "NIR + RedEdge";
+  if (name === "MCARI") return "Green + Red + RedEdge";
   return "Green + Red + Blue";
+}
+
+function indexFormula(name: SpectralIndexName) {
+  const formulas: Record<SpectralIndexName, string> = {
+    NDVI: "(NIR - Red) / (NIR + Red)",
+    GNDVI: "(NIR - Green) / (NIR + Green)",
+    SAVI: "((NIR - Red) / (NIR + Red + L)) × (1 + L)",
+    CIGREEN: "(NIR / Green) - 1",
+    CIRED_EDGE: "(NIR / RedEdge) - 1",
+    NDRE: "(NIR - RedEdge) / (NIR + RedEdge)",
+    MCARI: "((RedEdge - Red) - 0.2 × (RedEdge - Green)) × (RedEdge / Red)",
+    VARI: "(Green - Red) / (Green + Red - Blue)",
+    EXG: "2 × Green - Red - Blue",
+  };
+  return formulas[name];
 }
 
 function indexDisplayName(name: SpectralIndexName) {

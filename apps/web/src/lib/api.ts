@@ -221,6 +221,8 @@ export type SpectralIndexName =
   | "SAVI"
   | "CIGREEN"
   | "CIRED_EDGE"
+  | "NDRE"
+  | "MCARI"
   | "VARI"
   | "EXG";
 export type AnalysisScope = "roi" | "full_image";
@@ -418,6 +420,7 @@ export interface ProcessingResults {
       formula: string;
       required_bands: string[];
       parameters: Record<string, number>;
+      scientific_note?: string | null;
     }[];
     captures: {
       capture_id: string;
@@ -457,6 +460,7 @@ export interface ProcessingRecipe {
     formula: string;
     required_bands: string[];
     parameters: Record<string, number>;
+    scientific_note?: string | null;
   }[];
   statistics: string[];
   created_at: string;

@@ -28,6 +28,9 @@ const termDefinitions = {
     "Índice de clorofila que relaciona NIR e Green; valores inválidos e divisão por zero são excluídos.",
   "CIred-edge":
     "Índice de clorofila que relaciona NIR e Red Edge, preservando NoData e pixels inválidos.",
+  NDRE: "Índice normalizado com NIR e RedEdge, útil para avaliar vigor e clorofila em vegetação mais desenvolvida.",
+  MCARI:
+    "Índice de absorção de clorofila cuja precisão depende da posição espectral real da banda RedEdge do sensor.",
   VARI: "Índice de vegetação calculado apenas com as bandas visíveis Green, Red e Blue.",
   ExG: "Excesso de verde: realça a contribuição do canal Green em imagens RGB.",
   NoData:

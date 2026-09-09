@@ -261,13 +261,30 @@ def _formula(
         return (nir.values - green.values) / denominator, denominator
     if index_name == "CIGREEN" and green is not None and nir is not None:
         denominator = green.values
-        return (nir.values / denominator) - 1, denominator
+        return _safe_divide(nir.values, denominator) - 1, denominator
     if index_name == "CIRED_EDGE" and red_edge is not None and nir is not None:
         denominator = red_edge.values
-        return (nir.values / denominator) - 1, denominator
+        return _safe_divide(nir.values, denominator) - 1, denominator
+    if index_name == "NDRE" and red_edge is not None and nir is not None:
+        denominator = nir.values + red_edge.values
+        return _safe_divide(nir.values - red_edge.values, denominator), denominator
+    if index_name == "MCARI" and red is not None and green is not None and red_edge is not None:
+        denominator = red.values
+        absorption = (red_edge.values - red.values) - 0.2 * (red_edge.values - green.values)
+        return absorption * _safe_divide(red_edge.values, denominator), denominator
     if index_name == "VARI" and green is not None and red is not None and blue is not None:
         denominator = green.values + red.values - blue.values
         return (green.values - red.values) / denominator, denominator
     if index_name == "EXG" and green is not None and red is not None and blue is not None:
         return 2 * green.values - red.values - blue.values, None
     raise MissingBandError(f"Internal band validation failed for {index_name}")
+
+
+def _safe_divide(
+    numerator: npt.NDArray[np.float64], denominator: npt.NDArray[np.float64]
+) -> npt.NDArray[np.float64]:
+    """Divide finite arrays while leaving zero or invalid denominators as NaN."""
+    result = np.full(numerator.shape, np.nan, dtype=np.float64)
+    valid = np.isfinite(numerator) & np.isfinite(denominator) & (denominator != 0)
+    np.divide(numerator, denominator, out=result, where=valid)
+    return result

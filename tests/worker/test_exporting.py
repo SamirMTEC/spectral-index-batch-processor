@@ -64,6 +64,8 @@ def test_summary_export_aggregates_repetition_means_by_treatment_and_index(
         {"treatment": "T1", "index": "CIGREEN", "analysis_scope": "roi", "mean": 0.7},
         {"treatment": "T1", "index": "CIRED_EDGE", "analysis_scope": "roi", "mean": 0.8},
         {"treatment": "T1", "index": "VARI", "analysis_scope": "roi", "mean": 0.1},
+        {"treatment": "T1", "index": "NDRE", "analysis_scope": "roi", "mean": 0.6},
+        {"treatment": "T1", "index": "MCARI", "analysis_scope": "roi", "mean": 1.2},
     ]
 
     summaries = generator._summary_rows(snapshot, rows)
@@ -78,7 +80,13 @@ def test_summary_export_aggregates_repetition_means_by_treatment_and_index(
     assert ndvi["std"] == pytest.approx(0.1, abs=1e-12)
     assert full_ndvi["repetitions"] == 1
     assert full_ndvi["mean"] == pytest.approx(0.9, abs=1e-12)
-    assert {row["index"] for row in summaries} >= {"CIGREEN", "CIRED_EDGE", "VARI"}
+    assert {row["index"] for row in summaries} >= {
+        "CIGREEN",
+        "CIRED_EDGE",
+        "NDRE",
+        "MCARI",
+        "VARI",
+    }
 
     path = tmp_path / "results_summary.csv"
     _write_csv(path, summaries, SUMMARY_COLUMNS)

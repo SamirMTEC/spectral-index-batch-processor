@@ -198,6 +198,36 @@ def test_windowed_chlorophyll_indices_use_required_band_and_preserve_grid(
     assert metadata["valid_pixel_count"] == 9
 
 
+def test_windowed_mcari_uses_red_edge_and_masks_zero_red(tmp_path: Path) -> None:
+    paths = {
+        "GREEN": tmp_path / "green-mcari.tif",
+        "RED": tmp_path / "red-mcari.tif",
+        "RED_EDGE": tmp_path / "red-edge-mcari.tif",
+    }
+    write_band(paths["GREEN"], np.array([[1, 2], [3, 4]], dtype=np.uint16))
+    write_band(paths["RED"], np.array([[2, 2], [4, 0]], dtype=np.uint16))
+    write_band(paths["RED_EDGE"], np.array([[4, 3], [6, 10]], dtype=np.uint16))
+    output_path = tmp_path / "mcari.tif"
+    processor = object.__new__(ProcessingItemProcessor)
+    item = {
+        "id": uuid4(),
+        "index_name": "MCARI",
+        "analysis_scope": "full_image",
+        "parameters_snapshot": {},
+        "pixel_coordinates": None,
+    }
+
+    statistics, metadata = processor._calculate_windowed(item, {}, paths, output_path, tmp_path)
+
+    with rasterio.open(output_path) as result:
+        values = result.read(1)
+        np.testing.assert_allclose(values[0, :], [2.8, 1.2], rtol=1e-6, atol=1e-7)
+        np.testing.assert_allclose(values[1, 0], 2.1, rtol=1e-6, atol=1e-7)
+        assert np.isnan(values[1, 1])
+    assert statistics.count == 3
+    assert metadata["valid_pixel_count"] == 3
+
+
 async def test_versioned_item_never_falls_back_to_current_band_associations() -> None:
     processor = object.__new__(ProcessingItemProcessor)
     with pytest.raises(MissingBandError, match="frozen"):

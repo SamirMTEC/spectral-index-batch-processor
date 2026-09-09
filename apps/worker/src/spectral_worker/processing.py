@@ -38,6 +38,8 @@ REQUIRED_BANDS = {
     "SAVI": ("NIR", "RED"),
     "CIGREEN": ("NIR", "GREEN"),
     "CIRED_EDGE": ("NIR", "RED_EDGE"),
+    "NDRE": ("NIR", "RED_EDGE"),
+    "MCARI": ("GREEN", "RED", "RED_EDGE"),
     "VARI": ("GREEN", "RED", "BLUE"),
     "EXG": ("GREEN", "RED", "BLUE"),
 }

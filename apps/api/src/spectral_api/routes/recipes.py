@@ -72,6 +72,7 @@ async def create_recipe(
                 "formula": definition.expression,
                 "required_bands": list(definition.required_bands),
                 "parameters": parameters,
+                "scientific_note": definition.scientific_note,
             }
         )
     snapshot: dict[str, Any] = {

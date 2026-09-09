@@ -237,6 +237,7 @@ async def _resolve_configuration(
                 "formula": definition.expression,
                 "required_bands": list(definition.required_bands),
                 "parameters": definition.parameters_with_defaults(dict(requested.parameters)),
+                "scientific_note": definition.scientific_note,
             }
         )
     return None, indices, list(DEFAULT_STATISTICS)

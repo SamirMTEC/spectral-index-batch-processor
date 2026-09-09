@@ -803,6 +803,11 @@ function Reproducibility({
               <p className="text-muted-foreground mt-1 text-sm">
                 Parâmetros: {humanParameters(formula.parameters)}
               </p>
+              {formula.scientific_note && (
+                <p className="mt-2 text-sm text-amber-800">
+                  Observação científica: {formula.scientific_note}
+                </p>
+              )}
             </article>
           ))}
         </div>

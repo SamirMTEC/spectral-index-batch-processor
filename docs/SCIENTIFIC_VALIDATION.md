@@ -4,7 +4,7 @@
 
 Esta validação cobre o motor numérico interno do SpectralIndex Batch Processor
 `0.1.0` e as fórmulas `1.0.0` de NDVI, GNDVI, SAVI, CIgreen, CIred-edge,
-VARI e ExG. O objetivo é
+NDRE, MCARI, VARI e ExG. O objetivo é
 verificar fórmulas, promoção de tipos, regras de validade, recorte por ROI e
 estatísticas descritivas. A auditoria não valida calibração radiométrica do
 sensor, alinhamento físico entre bandas ou interpretação agronômica.
@@ -66,10 +66,12 @@ textual.
 | SAVI (`L=0.5`) | `float32` | `[[0.666667, 0, -0.666667], [0.48, 0.483871, 0.486486]]` |
 | CIgreen | `uint16` | `[[0.5, -0.333333, -0.75], [0.6, 0.666667, 0.714286]]` |
 | CIred-edge | `uint16` | `[[1, 0, -0.6], [1, 1, 1]]` |
+| NDRE | `uint16` | `[[0.333333, 0, -0.428571], [0.333333, 0.333333, 0.333333]]` |
+| MCARI | `float32` | `[[2.8, 1.2], [2.1, 7.6]]` em seu dataset manual independente |
 | VARI | `uint16` | `[[0.4, 0.25, 0.181818], [0.142857, 0.117647, 0.1]]` |
 | ExG | `uint8` | `[[25, 30, 35], [40, 45, 50]]` |
 
-Para os sete índices, a diferença absoluta máxima observada entre o motor e a
+Para os nove índices, a diferença absoluta máxima observada entre o motor e a
 referência NumPy foi `0.0` no ambiente auditado. A saída foi `float32` em todos
 os casos. Um teste adicional executa NDVI com os mesmos valores em `uint8`,
 `uint16` e `float32`, confirmando a promoção antes das operações e a ausência de
@@ -101,8 +103,8 @@ pixels válidos e 6 pixels externos, sem mudança de coordenadas entre janelas.
 No dataset de invalidade, apenas `(0,0)` e `(1,1)` permanecem válidos. Seus NDVI
 são, respectivamente, `0.5` e `1/3`. NoData, NaN, Inf e denominador zero
 permanecem com máscara inválida e valor `NaN`; não são convertidos para zero.
-NDVI, GNDVI, SAVI, CIgreen, CIred-edge e VARI possuem ainda casos independentes
-de denominador zero.
+NDVI, GNDVI, SAVI, CIgreen, CIred-edge, NDRE, MCARI e VARI possuem ainda casos
+independentes de denominador zero.
 ExG não possui divisão.
 
 Bandas ausentes são rejeitadas separadamente para cada fórmula. Dimensões
@@ -161,6 +163,9 @@ necessária.
   formato/sensor.
 - A cobertura poligonal segue o centro do pixel. Uma futura opção
   `all_touched=true` constituiria mudança metodológica e deve ser versionada.
+- O MCARI usa `RED_EDGE` como representação da região próxima de 700 nm. Sua
+  precisão e comparabilidade dependem da posição espectral e da largura de banda
+  reais do sensor; essa ressalva também é persistida no snapshot e no manifesto.
 - Não foram avaliados propagação de incerteza, sensibilidade radiométrica,
   significância estatística, desempenho ou variações entre arquiteturas de
   hardware.

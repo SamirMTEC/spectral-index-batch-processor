@@ -446,6 +446,8 @@ async def test_recipe_is_owner_scoped_reusable_and_reprocess_creates_child_job(
                     {"name": "SAVI", "parameters": {"L": 0.5}},
                     {"name": "CIGREEN"},
                     {"name": "CIRED_EDGE"},
+                    {"name": "NDRE"},
+                    {"name": "MCARI"},
                     {"name": "VARI"},
                     {"name": "EXG"},
                 ],
@@ -468,6 +470,8 @@ async def test_recipe_is_owner_scoped_reusable_and_reprocess_creates_child_job(
             "SAVI",
             "CIGREEN",
             "CIRED_EDGE",
+            "NDRE",
+            "MCARI",
             "VARI",
             "EXG",
         }

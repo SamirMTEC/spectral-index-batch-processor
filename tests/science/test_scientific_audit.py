@@ -138,6 +138,39 @@ def test_cired_edge_matches_manual_values_and_independent_numpy_reference() -> N
     assert result.values.dtype == np.float32
 
 
+def test_ndre_matches_manual_values_and_independent_numpy_reference() -> None:
+    red_edge = UINT16_BANDS["RED_EDGE"]
+    nir = UINT16_BANDS["NIR"]
+    manual = np.array(
+        [[1 / 3, 0.0, -3 / 7], [1 / 3, 1 / 3, 1 / 3]],
+        dtype=np.float32,
+    )
+    reference = (
+        (_float64(nir) - _float64(red_edge)) / (_float64(nir) + _float64(red_edge))
+    ).astype(np.float32)
+
+    _assert_scientific_values(reference, manual)
+    result = calculate_index("NDRE", {"NIR": nir, "RED_EDGE": red_edge})
+    _assert_scientific_values(result.values, reference)
+    assert result.values.dtype == np.float32
+
+
+def test_mcari_matches_manual_values_and_independent_numpy_reference() -> None:
+    green = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+    red = np.array([[2.0, 2.0], [4.0, 5.0]], dtype=np.float32)
+    red_edge = np.array([[4.0, 3.0], [6.0, 10.0]], dtype=np.float32)
+    manual = np.array([[2.8, 1.2], [2.1, 7.6]], dtype=np.float32)
+    reference = (
+        ((_float64(red_edge) - _float64(red)) - 0.2 * (_float64(red_edge) - _float64(green)))
+        * (_float64(red_edge) / _float64(red))
+    ).astype(np.float32)
+
+    _assert_scientific_values(reference, manual)
+    result = calculate_index("MCARI", {"GREEN": green, "RED": red, "RED_EDGE": red_edge})
+    _assert_scientific_values(result.values, reference)
+    assert result.values.dtype == np.float32
+
+
 def test_vari_matches_manual_values_and_independent_numpy_reference() -> None:
     red = UINT16_BANDS["RED"]
     green = UINT16_BANDS["GREEN"]
@@ -262,6 +295,8 @@ def test_nodata_nan_inf_zero_denominator_and_negative_values_follow_reference_ma
         ("SAVI", {"NIR": [[-2.5]], "RED": [[2.0]]}, {"L": 0.5}),
         ("CIGREEN", {"NIR": [[2.0]], "GREEN": [[0.0]]}, None),
         ("CIRED_EDGE", {"NIR": [[2.0]], "RED_EDGE": [[0.0]]}, None),
+        ("NDRE", {"NIR": [[-2.0]], "RED_EDGE": [[2.0]]}, None),
+        ("MCARI", {"GREEN": [[1.0]], "RED": [[0.0]], "RED_EDGE": [[2.0]]}, None),
         ("VARI", {"GREEN": [[2.0]], "RED": [[3.0]], "BLUE": [[5.0]]}, None),
     ],
 )
@@ -285,6 +320,12 @@ def test_each_denominator_formula_leaves_zero_denominator_invalid(
         ("SAVI", {"RED": np.ones((2, 2))}, "NIR"),
         ("CIGREEN", {"NIR": np.ones((2, 2))}, "GREEN"),
         ("CIRED_EDGE", {"NIR": np.ones((2, 2))}, "RED_EDGE"),
+        ("NDRE", {"NIR": np.ones((2, 2))}, "RED_EDGE"),
+        (
+            "MCARI",
+            {"GREEN": np.ones((2, 2)), "RED_EDGE": np.ones((2, 2))},
+            "RED",
+        ),
         ("VARI", {"GREEN": np.ones((2, 2)), "RED": np.ones((2, 2))}, "BLUE"),
         ("EXG", {"GREEN": np.ones((2, 2)), "BLUE": np.ones((2, 2))}, "RED"),
     ],

@@ -66,6 +66,18 @@ def manual_bands() -> dict[str, np.ndarray[tuple[int, int], np.dtype[np.float64]
             np.array([[1, 0], [-0.6, -1]], dtype=np.float32),
         ),
         (
+            "NDRE",
+            ("NIR", "RED_EDGE"),
+            None,
+            np.array([[1 / 3, 0], [-3 / 7, -1]], dtype=np.float32),
+        ),
+        (
+            "MCARI",
+            ("GREEN", "RED", "RED_EDGE"),
+            None,
+            np.array([[0.9, 0.4], [1 / 6, 0.8]], dtype=np.float32),
+        ),
+        (
             "VARI",
             ("GREEN", "RED", "BLUE"),
             None,
@@ -171,6 +183,37 @@ def test_chlorophyll_indices_preserve_nodata_nan_inf_roi_and_zero_denominator() 
     np.testing.assert_array_equal(result.valid_mask, expected_mask)
     np.testing.assert_allclose(result.values[0, 0], 0.5, rtol=RTOL, atol=ATOL)
     assert np.isnan(result.values[~expected_mask]).all()
+    assert result.statistics.count == 1
+
+
+@pytest.mark.parametrize(
+    ("index_name", "bands"),
+    [
+        (
+            "NDRE",
+            {
+                "NIR": np.array([[3.0, 3.0, np.inf, 3.0]]),
+                "RED_EDGE": BandData(np.array([[1.0, -3.0, 1.0, -9999.0]]), nodata=-9999),
+            },
+        ),
+        (
+            "MCARI",
+            {
+                "GREEN": np.array([[1.0, 1.0, 1.0, 1.0]]),
+                "RED": BandData(np.array([[2.0, 0.0, np.nan, -9999.0]]), nodata=-9999),
+                "RED_EDGE": np.array([[4.0, 4.0, 4.0, 4.0]]),
+            },
+        ),
+    ],
+)
+def test_new_red_edge_indices_preserve_invalid_pixels(
+    index_name: str, bands: dict[str, BandData | np.ndarray]
+) -> None:
+    result = calculate_index(index_name, bands)
+
+    np.testing.assert_array_equal(result.valid_mask, [[True, False, False, False]])
+    assert np.isfinite(result.values[0, 0])
+    assert np.isnan(result.values[0, 1:]).all()
     assert result.statistics.count == 1
 
 
