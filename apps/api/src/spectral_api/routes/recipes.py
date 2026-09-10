@@ -72,6 +72,14 @@ async def create_recipe(
                 "formula": definition.expression,
                 "required_bands": list(definition.required_bands),
                 "parameters": parameters,
+                "category": definition.category,
+                "description": definition.description,
+                "approximate": definition.approximate,
+                "unit": definition.unit,
+                "expected_range": (
+                    list(definition.expected_range) if definition.expected_range else None
+                ),
+                "aliases": list(definition.aliases),
                 "scientific_note": definition.scientific_note,
             }
         )

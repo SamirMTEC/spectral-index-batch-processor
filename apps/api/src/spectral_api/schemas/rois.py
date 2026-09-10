@@ -15,6 +15,7 @@ class CaptureSummary(BaseModel):
     replicate_label: str | None
     capture_key: str
     band_count: int
+    band_codes: list[str]
     roi_count: int
     created_at: datetime
 

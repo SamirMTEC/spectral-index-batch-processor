@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Annotated, Any
 from uuid import UUID, uuid4
@@ -191,6 +192,22 @@ async def list_captures(
             .order_by(Capture.created_at)
         )
     )
+    capture_ids = [capture.id for capture in captures]
+    band_codes_by_capture: dict[UUID, set[str]] = defaultdict(set)
+    if capture_ids:
+        band_rows = (
+            await session.execute(
+                select(BandAsset.capture_id, BandAsset.band_code).where(
+                    BandAsset.capture_id.in_(capture_ids),
+                    BandAsset.state == BandAssetState.ACCEPTED,
+                    BandAsset.role == AssetRole.SCIENTIFIC,
+                    BandAsset.band_code.is_not(None),
+                )
+            )
+        ).all()
+        for capture_id, band_code in band_rows:
+            if capture_id is not None and band_code is not None:
+                band_codes_by_capture[capture_id].add(str(band_code))
     results: list[CaptureSummary] = []
     for capture in captures:
         replicate_label = None
@@ -208,6 +225,7 @@ async def list_captures(
             )
             or 0
         )
+        band_codes = sorted(band_codes_by_capture[capture.id])
         roi_count = int(
             await session.scalar(
                 select(func.count(ROI.id)).where(
@@ -226,6 +244,7 @@ async def list_captures(
                 replicate_label=replicate_label,
                 capture_key=capture.capture_key,
                 band_count=band_count,
+                band_codes=band_codes,
                 roi_count=roi_count,
                 created_at=capture.created_at,
             )

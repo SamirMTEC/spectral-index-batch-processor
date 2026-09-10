@@ -127,6 +127,84 @@ async def test_job_creation_is_idempotent_and_uses_real_item_count(domain_app: F
         assert len(domain_app.state.resources.celery.tasks) == 4
 
 
+async def test_spectral_index_catalog_is_complete_versioned_and_five_band_only(
+    domain_app: FastAPI,
+) -> None:
+    async with client_for(domain_app) as client:
+        response = await client.get("/api/v1/spectral-indices")
+
+    assert response.status_code == 200
+    catalog = response.json()
+    assert len(catalog) == 39
+    assert {item["index"] for item in catalog} >= {
+        "NDVI",
+        "NDRE",
+        "EVI",
+        "MCARI2",
+        "PSRI",
+    }
+    assert all(
+        set(item["required_bands"]) <= {"BLUE", "GREEN", "RED", "RED_EDGE", "NIR"}
+        for item in catalog
+    )
+    rvi = next(item for item in catalog if item["index"] == "RVI")
+    exg = next(item for item in catalog if item["index"] == "EXG")
+    assert set(rvi["aliases"]) == {"Simple Ratio", "SR"}
+    assert exg["formula_version"] == "2.0.0"
+    assert exg["default_parameters"] == {"reflectance_scale": 1.0}
+    assert {item["index"] for item in catalog if item["approximate"]} == {
+        "ARI",
+        "MARI",
+        "MCARI",
+        "PSRI",
+        "TGI",
+    }
+
+
+async def test_alias_is_canonicalized_once_and_reflectance_scale_is_frozen(
+    domain_app: FastAPI,
+) -> None:
+    async with client_for(domain_app) as client:
+        dataset_id, _ = await seed_ready_capture(domain_app, client)
+        captures = await client.get(f"/api/v1/datasets/{dataset_id}/captures")
+        created = await client.post(
+            f"/api/v1/datasets/{dataset_id}/processing-jobs",
+            json={
+                "indices": [
+                    {
+                        "name": "Simple Ratio",
+                        "parameters": {"reflectance_scale": 10_000},
+                    }
+                ],
+                "analysis_scopes": ["full_image"],
+            },
+        )
+        duplicate = await client.post(
+            f"/api/v1/datasets/{dataset_id}/processing-jobs",
+            json={"indices": [{"name": "RVI"}, {"name": "SR"}]},
+        )
+
+    assert captures.status_code == 200
+    assert set(captures.json()[0]["band_codes"]) == {
+        "BLUE",
+        "GREEN",
+        "RED",
+        "RED_EDGE",
+        "NIR",
+    }
+    assert created.status_code == 201
+    assert created.json()["indices"] == ["RVI"]
+    assert created.json()["total_items"] == 1
+    assert duplicate.status_code == 422
+    async with domain_app.state.session_factory() as session:
+        item = await session.scalar(
+            select(ProcessingItem).where(ProcessingItem.job_id == UUID(created.json()["id"]))
+        )
+        assert item is not None
+        assert item.index_name == "RVI"
+        assert item.parameters_snapshot == {"reflectance_scale": 10_000.0}
+
+
 async def test_job_creation_respects_selected_analysis_scopes(domain_app: FastAPI) -> None:
     async with client_for(domain_app) as client:
         dataset_id, _ = await seed_ready_capture(domain_app, client)
@@ -456,7 +534,9 @@ async def test_recipe_is_owner_scoped_reusable_and_reprocess_creates_child_job(
         )
         assert recipe_response.status_code == 201
         recipe = recipe_response.json()
-        assert {value["formula_version"] for value in recipe["indices"]} == {"1.0.0"}
+        versions = {value["index"]: value["formula_version"] for value in recipe["indices"]}
+        assert versions["EXG"] == "2.0.0"
+        assert set(versions.values()) == {"1.0.0", "2.0.0"}
         created = await client.post(
             f"/api/v1/datasets/{dataset_id}/processing-jobs",
             json={"recipe_id": recipe["id"]},

@@ -1,35 +1,70 @@
 """Contracts for asynchronous scientific batch processing."""
 
+import math
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from spectral_common import (
+    CURRENT_FORMULA_VERSIONS,
+    canonicalize_index_name,
+    get_formula_definition,
+)
 
 from spectral_api.domain.models import AnalysisScope, ProcessingItemState, ProcessingJobState
 
-IndexName = Literal[
-    "NDVI", "GNDVI", "SAVI", "CIGREEN", "CIRED_EDGE", "NDRE", "MCARI", "VARI", "EXG"
-]
+MAX_SPECTRAL_INDICES = len(CURRENT_FORMULA_VERSIONS)
+
+
+class SpectralIndexDefinitionResponse(BaseModel):
+    index: str
+    formula_version: str
+    formula: str
+    required_bands: list[str]
+    category: str
+    description: str
+    approximate: bool
+    unit: str
+    expected_range: list[float] | None
+    aliases: list[str]
+    allowed_parameters: list[str]
+    default_parameters: dict[str, float]
+    scientific_note: str | None
 
 
 class ProcessingIndexInput(BaseModel):
-    name: IndexName
+    name: str
     parameters: dict[str, float] = Field(default_factory=dict)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def validate_name(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("Spectral index name must be a string")
+        canonical = canonicalize_index_name(value)
+        if canonical not in CURRENT_FORMULA_VERSIONS:
+            raise ValueError(f"Unsupported spectral index: {canonical}")
+        return canonical
 
     @model_validator(mode="after")
     def validate_parameters(self) -> "ProcessingIndexInput":
-        allowed = {"L"} if self.name == "SAVI" else set()
+        definition = get_formula_definition(self.name)
+        allowed = set(definition.allowed_parameters)
         unknown = set(self.parameters) - allowed
         if unknown:
             raise ValueError(f"Unknown parameters for {self.name}: {', '.join(sorted(unknown))}")
-        if self.name == "SAVI" and "L" not in self.parameters:
-            self.parameters["L"] = 0.5
+        self.parameters = definition.parameters_with_defaults(self.parameters)
+        if any(not math.isfinite(value) for value in self.parameters.values()):
+            raise ValueError("Index parameters must be finite")
+        if self.parameters["reflectance_scale"] <= 0:
+            raise ValueError("reflectance_scale must be greater than zero")
         return self
 
 
 class ProcessingJobCreate(BaseModel):
-    indices: list[ProcessingIndexInput] = Field(default_factory=list, max_length=9)
+    indices: list[ProcessingIndexInput] = Field(
+        default_factory=list, max_length=MAX_SPECTRAL_INDICES
+    )
     recipe_id: UUID | None = None
     capture_ids: list[UUID] | None = Field(default=None, max_length=10_000)
     analysis_scopes: list[AnalysisScope] = Field(

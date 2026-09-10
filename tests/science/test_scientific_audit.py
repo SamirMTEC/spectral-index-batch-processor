@@ -197,7 +197,11 @@ def test_exg_matches_manual_values_and_independent_numpy_reference() -> None:
     reference = (2 * _float64(green) - _float64(red) - _float64(blue)).astype(np.float32)
 
     _assert_scientific_values(reference, manual)
-    result = calculate_index("EXG", {"GREEN": green, "RED": red, "BLUE": blue})
+    result = calculate_index(
+        "EXG",
+        {"GREEN": green, "RED": red, "BLUE": blue},
+        formula_version="1.0.0",
+    )
     _assert_scientific_values(result.values, reference)
     assert result.values.dtype == np.float32
 
@@ -357,7 +361,12 @@ def test_statistics_match_numpy_population_statistics_and_linear_percentiles() -
     green = np.array([[0.5, 1.0, 1.5], [2.5, 4.0, 8.0]], dtype=np.float32)
     zeros = np.zeros_like(green)
     roi = np.array([[True, False, True], [True, True, True]], dtype=np.bool_)
-    result = calculate_index("EXG", {"GREEN": green, "RED": zeros, "BLUE": zeros}, roi=roi)
+    result = calculate_index(
+        "EXG",
+        {"GREEN": green, "RED": zeros, "BLUE": zeros},
+        roi=roi,
+        formula_version="1.0.0",
+    )
     persisted_reference = (2 * green.astype(np.float64)).astype(np.float32)[roi].astype(np.float64)
     percentiles = np.percentile(persisted_reference, [5, 25, 75, 95], method="linear")
     statistics = result.statistics

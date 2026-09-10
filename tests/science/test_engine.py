@@ -102,6 +102,7 @@ def test_index_formulas_match_manual_values(
         index_name,
         {name: manual_bands[name] for name in required},
         parameters=parameters,
+        formula_version="1.0.0" if index_name.upper() == "EXG" else None,
     )
 
     assert result.values.dtype == np.float32
@@ -116,8 +117,8 @@ def test_savi_uses_default_and_configurable_soil_factor() -> None:
 
     np.testing.assert_allclose(default.values, [[2 / 3]], rtol=RTOL, atol=ATOL)
     np.testing.assert_allclose(configured.values, [[0.8]], rtol=RTOL, atol=ATOL)
-    assert default.parameters == {"L": 0.5}
-    assert configured.parameters == {"L": 1.0}
+    assert default.parameters == {"L": 0.5, "reflectance_scale": 1.0}
+    assert configured.parameters == {"L": 1.0, "reflectance_scale": 1.0}
 
 
 def test_formula_version_is_explicit_and_unknown_versions_are_rejected() -> None:
@@ -237,6 +238,7 @@ def test_integer_extremes_are_converted_before_arithmetic() -> None:
             "RED": np.array([[minimum]], dtype=np.int32),
             "BLUE": np.array([[minimum]], dtype=np.int32),
         },
+        formula_version="1.0.0",
     )
     expected = float(2 * int(maximum) - int(minimum) - int(minimum))
 
@@ -253,6 +255,7 @@ def test_result_overflow_to_float32_is_invalid_not_infinite() -> None:
             "RED": np.array([[-extreme]]),
             "BLUE": np.array([[0.0]]),
         },
+        formula_version="1.0.0",
     )
 
     assert not result.valid_mask[0, 0]
@@ -275,6 +278,7 @@ def test_statistics_use_only_valid_float32_pixels() -> None:
     result = calculate_index(
         "EXG",
         {"GREEN": desired / 2, "RED": np.zeros((2, 2)), "BLUE": np.zeros((2, 2))},
+        formula_version="1.0.0",
     )
     statistics = result.statistics
 

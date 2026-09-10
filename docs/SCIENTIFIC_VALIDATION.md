@@ -3,11 +3,13 @@
 ## Escopo e versão auditada
 
 Esta validação cobre o motor numérico interno do SpectralIndex Batch Processor
-`0.1.0` e as fórmulas `1.0.0` de NDVI, GNDVI, SAVI, CIgreen, CIred-edge,
-NDRE, MCARI, VARI e ExG. O objetivo é
-verificar fórmulas, promoção de tipos, regras de validade, recorte por ROI e
-estatísticas descritivas. A auditoria não valida calibração radiométrica do
-sensor, alinhamento físico entre bandas ou interpretação agronômica.
+`0.1.0` e os 39 índices correntes documentados em
+`docs/SPECTRAL_INDEX_CATALOG.md`. O ExG corrente é `2.0.0`; a fórmula não
+normalizada `1.0.0` permanece testada exclusivamente para reprodutibilidade de
+jobs históricos. O objetivo é verificar fórmulas, promoção de tipos, escala de
+reflectância, regras de validade, recorte por ROI e estatísticas descritivas. A
+auditoria não valida calibração radiométrica do sensor, alinhamento físico entre
+bandas ou interpretação agronômica.
 
 ## Metodologia
 
@@ -21,8 +23,15 @@ Cada índice possui um teste independente com três níveis de comparação:
 As matrizes manuais são comparadas à referência NumPy e, separadamente, a saída
 do sistema é comparada à referência. Máscara de validade e valores inválidos
 (`NaN`) também são comparados explicitamente. Os testes estão em
-`tests/science/test_scientific_audit.py`; os dados compartilhados estão em
-`tests/science/synthetic_datasets.py`.
+`tests/science/test_scientific_audit.py` e
+`tests/science/test_extended_index_catalog.py`; os dados compartilhados estão
+em `tests/science/synthetic_datasets.py`.
+
+A matriz estendida executa, para cada um dos 39 índices correntes: comparação
+com expressão NumPy independente, dtype `float32`, máscara de NoData/NaN/Inf e
+equivalência entre reflectância 0–1 e valores 0–10000 quando
+`reflectance_scale=10000`. Há casos independentes para denominadores zero ou
+numericamente próximos de zero e argumentos negativos de raiz.
 
 As estatísticas de referência são calculadas somente sobre os valores válidos
 já convertidos para `float32`, reproduzindo o conjunto efetivamente persistido
@@ -69,13 +78,14 @@ textual.
 | NDRE | `uint16` | `[[0.333333, 0, -0.428571], [0.333333, 0.333333, 0.333333]]` |
 | MCARI | `float32` | `[[2.8, 1.2], [2.1, 7.6]]` em seu dataset manual independente |
 | VARI | `uint16` | `[[0.4, 0.25, 0.181818], [0.142857, 0.117647, 0.1]]` |
-| ExG | `uint8` | `[[25, 30, 35], [40, 45, 50]]` |
+| ExG legado `1.0.0` | `uint8` | `[[25, 30, 35], [40, 45, 50]]` |
 
-Para os nove índices, a diferença absoluta máxima observada entre o motor e a
-referência NumPy foi `0.0` no ambiente auditado. A saída foi `float32` em todos
-os casos. Um teste adicional executa NDVI com os mesmos valores em `uint8`,
-`uint16` e `float32`, confirmando a promoção antes das operações e a ausência de
-overflow do tipo de origem.
+Além desses casos manuais legados, todos os 39 índices correntes foram
+comparados a expressões NumPy independentes sobre uma matriz 2 × 2 de
+reflectância. Todos ficaram dentro de `rtol=1e-6` e `atol=1e-7`. A saída foi
+`float32` em todos os casos. Um teste adicional executa NDVI com os mesmos
+valores em `uint8`, `uint16` e `float32`, confirmando a promoção antes das
+operações e a ausência de overflow do tipo de origem.
 
 ## ROI e validade
 
@@ -103,9 +113,10 @@ pixels válidos e 6 pixels externos, sem mudança de coordenadas entre janelas.
 No dataset de invalidade, apenas `(0,0)` e `(1,1)` permanecem válidos. Seus NDVI
 são, respectivamente, `0.5` e `1/3`. NoData, NaN, Inf e denominador zero
 permanecem com máscara inválida e valor `NaN`; não são convertidos para zero.
-NDVI, GNDVI, SAVI, CIgreen, CIred-edge, NDRE, MCARI e VARI possuem ainda casos
-independentes de denominador zero.
-ExG não possui divisão.
+As fórmulas com divisão possuem casos representativos de denominador zero. ExG,
+ExR e ExGR também invalidam o pixel quando a soma usada para normalizar RGB é
+zero. RDVI, TVI, MSAVI2 e MCARI2 possuem casos específicos de argumento negativo
+de raiz. Nenhum desses valores é convertido artificialmente em zero.
 
 Bandas ausentes são rejeitadas separadamente para cada fórmula. Dimensões
 incompatíveis entre bandas e entre ROI e raster também produzem erro antes do
@@ -144,13 +155,16 @@ persistidos, por isso usam tolerância mais estrita.
 
 ## Divergências investigadas
 
-Durante a construção da auditoria, a expectativa manual inicial da segunda
-linha de SAVI divergiu da referência. A causa foi o uso acidental dos
-denominadores do dataset inteiro em uma variante cujas bandas haviam sido
-divididas por 10. O parâmetro aditivo `L=0.5` não é dividido junto com as bandas,
-portanto SAVI não é invariante a essa escala. A expressão foi recalculada à mão
-e confirmada por NumPy. Nenhuma alteração no algoritmo de produção foi
-necessária.
+O catálogo anterior definia ExG como `2*GREEN - RED - BLUE`, enquanto o novo
+contrato exige RGB normalizado. Sobrescrever a fórmula quebraria a
+reprodutibilidade dos jobs existentes. A correção foi versionar o ExG: `1.0.0`
+continua disponível para snapshots antigos e `2.0.0` é a versão corrente.
+
+Índices com constantes não são invariantes à escala digital. Em vez de inferir
+ou dividir silenciosamente por 10000, o motor agora aplica somente o
+`reflectance_scale` explicitamente congelado no job. Os testes confirmam a
+equivalência numérica entre entradas 0–1 e 0–10000 quando a escala correta é
+informada.
 
 ## Limitações e próximos passos de validação
 
@@ -166,6 +180,8 @@ necessária.
 - O MCARI usa `RED_EDGE` como representação da região próxima de 700 nm. Sua
   precisão e comparabilidade dependem da posição espectral e da largura de banda
   reais do sensor; essa ressalva também é persistida no snapshot e no manifesto.
+- ARI, mARI, TGI e PSRI também carregam ressalvas de aproximação espectral no
+  catálogo e nos metadados de reprodutibilidade.
 - Não foram avaliados propagação de incerteza, sensibilidade radiométrica,
   significância estatística, desempenho ou variações entre arquiteturas de
   hardware.

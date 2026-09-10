@@ -39,10 +39,15 @@ from spectral_engine.models import (
 class IndexDefinition:
     required_bands: tuple[str, ...]
     parameters: frozenset[str] = frozenset()
+    default_parameters: tuple[tuple[str, float], ...] = ()
 
 
 INDEX_DEFINITIONS: dict[str, IndexDefinition] = {
-    name: IndexDefinition(definition.required_bands, definition.allowed_parameters)
+    name: IndexDefinition(
+        definition.required_bands,
+        definition.allowed_parameters,
+        definition.default_parameters,
+    )
     for (name, version), definition in FORMULA_DEFINITIONS.items()
     if CURRENT_FORMULA_VERSIONS.get(name) == version
 }
@@ -74,7 +79,9 @@ def calculate_index(
             f"Unsupported spectral formula: {canonical_name}@{formula_version or 'current'}"
         ) from None
     definition = IndexDefinition(
-        scientific_definition.required_bands, scientific_definition.allowed_parameters
+        scientific_definition.required_bands,
+        scientific_definition.allowed_parameters,
+        scientific_definition.default_parameters,
     )
     canonical_bands = _canonicalize_bands(bands)
     missing = [name for name in definition.required_bands if name not in canonical_bands]
@@ -152,6 +159,8 @@ def _canonicalize_bands(bands: Mapping[str, BandInput]) -> dict[str, BandInput]:
     canonical: dict[str, BandInput] = {}
     for key, value in bands.items():
         name = key.strip().upper().replace(" ", "_")
+        if name == "REDEDGE":
+            name = "RED_EDGE"
         if name in canonical:
             raise MissingBandError(f"Band name is ambiguous after normalization: {name}")
         canonical[name] = value
@@ -220,17 +229,17 @@ def _parameters(
     definition: IndexDefinition,
     parameters: Mapping[str, float | int] | None,
 ) -> dict[str, float]:
-    supplied = dict(parameters or {})
+    supplied = {**dict(definition.default_parameters), **dict(parameters or {})}
     unknown = set(supplied) - definition.parameters
     if unknown:
         raise InvalidParameterError(
             f"Unknown parameter(s) for {index_name}: {', '.join(sorted(unknown))}"
         )
-    if index_name == "SAVI" and "L" not in supplied:
-        supplied["L"] = DEFAULT_SAVI_L
     normalized = {name: float(value) for name, value in supplied.items()}
     if any(not math.isfinite(value) for value in normalized.values()):
         raise InvalidParameterError("Index parameters must be finite")
+    if normalized.get("reflectance_scale", 1.0) <= 0:
+        raise InvalidParameterError("reflectance_scale must be greater than zero")
     return normalized
 
 
@@ -240,43 +249,135 @@ def _formula(
     bands: Mapping[str, PreparedBand],
     parameters: Parameters | Mapping[str, float],
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64] | None]:
-    if formula_version != "1.0.0":
+    if formula_version not in {"1.0.0", "2.0.0"}:
         raise InvalidParameterError(
             f"Formula implementation is unavailable: {index_name}@{formula_version}"
         )
-    red = bands.get("RED")
-    green = bands.get("GREEN")
-    blue = bands.get("BLUE")
-    nir = bands.get("NIR")
-    red_edge = bands.get("RED_EDGE")
+    scale = float(parameters.get("reflectance_scale", 1.0))
+    red = bands["RED"].values / scale if "RED" in bands else None
+    green = bands["GREEN"].values / scale if "GREEN" in bands else None
+    blue = bands["BLUE"].values / scale if "BLUE" in bands else None
+    nir = bands["NIR"].values / scale if "NIR" in bands else None
+    red_edge = bands["RED_EDGE"].values / scale if "RED_EDGE" in bands else None
     if index_name in {"NDVI", "SAVI"} and red is not None and nir is not None:
-        denominator = nir.values + red.values
+        denominator = nir + red
         if index_name == "SAVI":
             soil = float(parameters["L"])
             denominator = denominator + soil
-            return ((nir.values - red.values) / denominator) * (1 + soil), denominator
-        return (nir.values - red.values) / denominator, denominator
+            return _safe_divide(nir - red, denominator) * (1 + soil), denominator
+        return _safe_divide(nir - red, denominator), denominator
     if index_name == "GNDVI" and green is not None and nir is not None:
-        denominator = nir.values + green.values
-        return (nir.values - green.values) / denominator, denominator
+        denominator = nir + green
+        return _safe_divide(nir - green, denominator), denominator
     if index_name == "CIGREEN" and green is not None and nir is not None:
-        denominator = green.values
-        return _safe_divide(nir.values, denominator) - 1, denominator
+        return _safe_divide(nir, green) - 1, green
     if index_name == "CIRED_EDGE" and red_edge is not None and nir is not None:
-        denominator = red_edge.values
-        return _safe_divide(nir.values, denominator) - 1, denominator
+        return _safe_divide(nir, red_edge) - 1, red_edge
     if index_name == "NDRE" and red_edge is not None and nir is not None:
-        denominator = nir.values + red_edge.values
-        return _safe_divide(nir.values - red_edge.values, denominator), denominator
+        denominator = nir + red_edge
+        return _safe_divide(nir - red_edge, denominator), denominator
     if index_name == "MCARI" and red is not None and green is not None and red_edge is not None:
-        denominator = red.values
-        absorption = (red_edge.values - red.values) - 0.2 * (red_edge.values - green.values)
-        return absorption * _safe_divide(red_edge.values, denominator), denominator
+        absorption = (red_edge - red) - 0.2 * (red_edge - green)
+        return absorption * _safe_divide(red_edge, red), red
     if index_name == "VARI" and green is not None and red is not None and blue is not None:
-        denominator = green.values + red.values - blue.values
-        return (green.values - red.values) / denominator, denominator
+        denominator = green + red - blue
+        return _safe_divide(green - red, denominator), denominator
     if index_name == "EXG" and green is not None and red is not None and blue is not None:
-        return 2 * green.values - red.values - blue.values, None
+        if formula_version == "1.0.0":
+            return 2 * green - red - blue, None
+        red_normalized, green_normalized, blue_normalized, total = _normalized_rgb(red, green, blue)
+        return 2 * green_normalized - red_normalized - blue_normalized, total
+    if index_name == "DVI" and red is not None and nir is not None:
+        return nir - red, None
+    if index_name == "RVI" and red is not None and nir is not None:
+        return _safe_divide(nir, red), red
+    if index_name == "IPVI" and red is not None and nir is not None:
+        denominator = nir + red
+        return _safe_divide(nir, denominator), denominator
+    if index_name == "RDVI" and red is not None and nir is not None:
+        denominator = _safe_sqrt(nir + red)
+        return _safe_divide(nir - red, denominator), denominator
+    if index_name == "OSAVI" and red is not None and nir is not None:
+        denominator = nir + red + 0.16
+        return 1.16 * _safe_divide(nir - red, denominator), denominator
+    if index_name == "MSAVI2" and red is not None and nir is not None:
+        root = _safe_sqrt((2 * nir + 1) ** 2 - 8 * (nir - red))
+        return (2 * nir + 1 - root) / 2, None
+    if index_name in {"TVI", "CTVI", "NIRV"} and red is not None and nir is not None:
+        ndvi_denominator = nir + red
+        ndvi = _safe_divide(nir - red, ndvi_denominator)
+        if index_name == "TVI":
+            return _safe_sqrt(ndvi + 0.5), ndvi_denominator
+        if index_name == "CTVI":
+            shifted = ndvi + 0.5
+            result = np.full(shifted.shape, np.nan, dtype=np.float64)
+            valid = np.isfinite(shifted) & (shifted != 0)
+            result[valid] = np.sign(shifted[valid]) * np.sqrt(np.abs(shifted[valid]))
+            return result, ndvi_denominator
+        return ndvi * nir, ndvi_denominator
+    if index_name == "EVI" and red is not None and nir is not None and blue is not None:
+        denominator = nir + 6 * red - 7.5 * blue + 1
+        return 2.5 * _safe_divide(nir - red, denominator), denominator
+    if index_name == "EVI2" and red is not None and nir is not None:
+        denominator = nir + 2.4 * red + 1
+        return 2.5 * _safe_divide(nir - red, denominator), denominator
+    if index_name == "ARVI" and red is not None and nir is not None and blue is not None:
+        gamma = float(parameters["gamma"])
+        corrected_red = red - gamma * (blue - red)
+        denominator = nir + corrected_red
+        return _safe_divide(nir - corrected_red, denominator), denominator
+    if index_name == "MNDVI" and red is not None and nir is not None and blue is not None:
+        denominator = nir + red - 2 * blue
+        return _safe_divide(nir - red, denominator), denominator
+    if index_name == "SIPI" and red is not None and nir is not None and blue is not None:
+        denominator = nir - red
+        return _safe_divide(nir - blue, denominator), denominator
+    if index_name == "NPCI" and red is not None and blue is not None:
+        denominator = red + blue
+        return _safe_divide(red - blue, denominator), denominator
+    if index_name == "CI" and red is not None and blue is not None:
+        return _safe_divide(red - blue, red), red
+    if index_name == "CVI" and red is not None and green is not None and nir is not None:
+        denominator = green**2
+        return _safe_divide(nir * red, denominator), denominator
+    if index_name == "GLI" and green is not None and red is not None and blue is not None:
+        denominator = 2 * green + red + blue
+        return _safe_divide(2 * green - red - blue, denominator), denominator
+    if index_name == "NGRDI" and green is not None and red is not None:
+        denominator = green + red
+        return _safe_divide(green - red, denominator), denominator
+    if index_name == "RGBVI" and green is not None and red is not None and blue is not None:
+        denominator = green**2 + red * blue
+        return _safe_divide(green**2 - red * blue, denominator), denominator
+    if index_name == "MGRVI" and green is not None and red is not None:
+        denominator = green**2 + red**2
+        return _safe_divide(green**2 - red**2, denominator), denominator
+    if index_name in {"EXR", "EXGR"} and green is not None and red is not None and blue is not None:
+        red_normalized, green_normalized, blue_normalized, total = _normalized_rgb(red, green, blue)
+        exr = 1.4 * red_normalized - green_normalized
+        if index_name == "EXR":
+            return exr, total
+        exg = 2 * green_normalized - red_normalized - blue_normalized
+        return exg - exr, total
+    if index_name == "TGI" and green is not None and red is not None and blue is not None:
+        return green - 0.39 * red - 0.61 * blue, None
+    if index_name == "RRI1" and red_edge is not None and nir is not None:
+        return _safe_divide(nir, red_edge), red_edge
+    if index_name in {"ARI", "MARI"} and green is not None and red_edge is not None:
+        ari = _safe_divide(np.ones_like(green), green) - _safe_divide(
+            np.ones_like(red_edge), red_edge
+        )
+        if index_name == "MARI" and nir is not None:
+            return nir * ari, None
+        return ari, None
+    if index_name == "MCARI1" and red is not None and green is not None and nir is not None:
+        return 1.2 * (2.5 * (nir - red) - 1.3 * (nir - green)), None
+    if index_name == "MCARI2" and red is not None and green is not None and nir is not None:
+        numerator = 1.5 * (2.5 * (nir - red) - 1.3 * (nir - green))
+        denominator = _safe_sqrt((2 * nir + 1) ** 2 - (6 * nir - 5 * _safe_sqrt(red)) - 0.5)
+        return _safe_divide(numerator, denominator), denominator
+    if index_name == "PSRI" and red is not None and green is not None and nir is not None:
+        return _safe_divide(red - green, nir), nir
     raise MissingBandError(f"Internal band validation failed for {index_name}")
 
 
@@ -285,6 +386,36 @@ def _safe_divide(
 ) -> npt.NDArray[np.float64]:
     """Divide finite arrays while leaving zero or invalid denominators as NaN."""
     result = np.full(numerator.shape, np.nan, dtype=np.float64)
-    valid = np.isfinite(numerator) & np.isfinite(denominator) & (denominator != 0)
+    valid = (
+        np.isfinite(numerator)
+        & np.isfinite(denominator)
+        & ~np.isclose(denominator, 0, rtol=0, atol=np.finfo(np.float64).eps)
+    )
     np.divide(numerator, denominator, out=result, where=valid)
     return result
+
+
+def _safe_sqrt(values: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+    result = np.full(values.shape, np.nan, dtype=np.float64)
+    valid = np.isfinite(values) & (values >= 0)
+    np.sqrt(values, out=result, where=valid)
+    return result
+
+
+def _normalized_rgb(
+    red: npt.NDArray[np.float64],
+    green: npt.NDArray[np.float64],
+    blue: npt.NDArray[np.float64],
+) -> tuple[
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+    npt.NDArray[np.float64],
+]:
+    total = red + green + blue
+    return (
+        _safe_divide(red, total),
+        _safe_divide(green, total),
+        _safe_divide(blue, total),
+        total,
+    )

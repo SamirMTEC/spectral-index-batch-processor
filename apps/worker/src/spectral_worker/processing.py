@@ -19,7 +19,7 @@ import structlog
 from affine import Affine
 from botocore.config import Config
 from rasterio.features import geometry_mask
-from spectral_common import Settings
+from spectral_common import CURRENT_FORMULA_VERSIONS, FORMULA_DEFINITIONS, Settings
 from spectral_engine import (
     BandData,
     IncompatibleDimensionsError,
@@ -33,15 +33,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 REQUIRED_BANDS = {
-    "NDVI": ("NIR", "RED"),
-    "GNDVI": ("NIR", "GREEN"),
-    "SAVI": ("NIR", "RED"),
-    "CIGREEN": ("NIR", "GREEN"),
-    "CIRED_EDGE": ("NIR", "RED_EDGE"),
-    "NDRE": ("NIR", "RED_EDGE"),
-    "MCARI": ("GREEN", "RED", "RED_EDGE"),
-    "VARI": ("GREEN", "RED", "BLUE"),
-    "EXG": ("GREEN", "RED", "BLUE"),
+    name: definition.required_bands
+    for (name, version), definition in FORMULA_DEFINITIONS.items()
+    if CURRENT_FORMULA_VERSIONS.get(name) == version
 }
 NON_RETRYABLE = (
     MissingBandError,

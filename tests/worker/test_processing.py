@@ -7,8 +7,9 @@ import numpy as np
 import pytest
 import rasterio
 from affine import Affine
+from spectral_common import CURRENT_FORMULA_VERSIONS, FORMULA_DEFINITIONS
 from spectral_engine import MissingBandError
-from spectral_worker.processing import ProcessingItemProcessor
+from spectral_worker.processing import REQUIRED_BANDS, ProcessingItemProcessor
 
 
 def write_band(path: Path, values: np.ndarray) -> None:
@@ -24,6 +25,16 @@ def write_band(path: Path, values: np.ndarray) -> None:
         transform=Affine.translation(-40, -12) @ Affine.scale(0.01, -0.01),
     ) as output:
         output.write(values, 1)
+
+
+def test_worker_required_bands_follow_the_complete_central_catalog() -> None:
+    expected = {
+        name: FORMULA_DEFINITIONS[(name, version)].required_bands
+        for name, version in CURRENT_FORMULA_VERSIONS.items()
+    }
+
+    assert expected == REQUIRED_BANDS
+    assert len(REQUIRED_BANDS) == 39
 
 
 def test_windowed_item_calculation_applies_roi_and_preserves_grid(tmp_path: Path) -> None:

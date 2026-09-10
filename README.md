@@ -238,7 +238,14 @@ Estão disponíveis `NDVI`, `GNDVI`, `SAVI`, `VARI` e `ExG`. O SAVI usa `L=0.5` 
 
 ## Processamento assíncrono
 
-Na tela de um dataset, selecione **Processar índices**. A tela **Processamento** permite escolher NDVI, GNDVI, SAVI, VARI e ExG, configurar o `L` do SAVI, iniciar o lote, cancelar itens ainda não concluídos e repetir falhas recuperáveis. O frontend consulta a API a cada dois segundos; a barra usa exclusivamente `processed_items / total_items` persistido no PostgreSQL.
+Na tela de um dataset, selecione **Processar índices**. A tela **Processamento**
+carrega o catálogo central com 39 índices calculáveis por BLUE, GREEN, RED,
+RedEdge e NIR. Ela permite pesquisar, selecionar todos os índices compatíveis,
+identificar bandas ausentes e configurar `L` do SAVI, `gamma` do ARVI e a escala
+de reflectância explícita. O catálogo completo e versionado está em
+[docs/SPECTRAL_INDEX_CATALOG.md](docs/SPECTRAL_INDEX_CATALOG.md). O frontend
+consulta a API a cada dois segundos; a barra usa exclusivamente
+`processed_items / total_items` persistido no PostgreSQL.
 
 Cada tarefa Celery processa uma captura e um índice. As bandas são lidas por janelas raster, o que evita carregar o dataset inteiro na memória. Falhas ficam isoladas no item: um lote com sucessos e falhas termina como `completed_with_errors`. Resultados são GeoTIFF float32 no object storage, com estatísticas e checksums persistidos.
 
@@ -247,6 +254,7 @@ Ao terminar um lote, use **Ver resultados**. A página **Resultados** apresenta 
 Endpoints principais:
 
 - `POST /api/v1/datasets/{dataset_id}/processing-jobs` cria um lote idempotente.
+- `GET /api/v1/spectral-indices` retorna o catálogo científico corrente.
 - `GET /api/v1/datasets/{dataset_id}/processing-jobs` lista o histórico.
 - `GET /api/v1/processing-jobs/{job_id}` retorna progresso, itens e estatísticas.
 - `GET /api/v1/processing-jobs/{job_id}/results` retorna a experiência completa de resultados.

@@ -57,9 +57,9 @@ Essas regras estão em `apps/web/public/_headers` e exigem um novo deploy Pages.
 Este modo mantém na sua máquina a API, os workers, PostgreSQL, Redis e MinIO. O frontend
 continua no Cloudflare Pages. Um Cloudflare Tunnel nomeado publica somente dois serviços:
 
-| Hostname | Serviço local |
-| --- | --- |
-| `api-spectral.classlab.com.br` | `http://host.docker.internal:57705` |
+| Hostname                           | Serviço local                       |
+| ---------------------------------- | ----------------------------------- |
+| `api-spectral.classlab.com.br`     | `http://host.docker.internal:57705` |
 | `storage-spectral.classlab.com.br` | `http://host.docker.internal:57703` |
 
 PostgreSQL, Redis e o console do MinIO não devem ser publicados.

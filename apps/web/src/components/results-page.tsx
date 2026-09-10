@@ -793,7 +793,13 @@ function Reproducibility({
             >
               <p className="font-semibold">
                 {formula.index} · fórmula {formula.formula_version}
+                {formula.approximate ? " · aproximação espectral" : ""}
               </p>
+              {formula.description && (
+                <p className="text-muted-foreground mt-1 text-sm">
+                  {formula.description}
+                </p>
+              )}
               <code className="bg-muted mt-2 block overflow-x-auto rounded p-3 text-xs">
                 {formula.formula}
               </code>

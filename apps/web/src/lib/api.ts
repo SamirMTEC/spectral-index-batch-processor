@@ -135,6 +135,7 @@ export interface CaptureSummary {
   replicate_label: string | null;
   capture_key: string;
   band_count: number;
+  band_codes: string[];
   roi_count: number;
   created_at: string;
 }
@@ -215,16 +216,22 @@ export type ProcessingJobState =
   | "cancelled";
 export type ProcessingItemState =
   "pending" | "running" | "completed" | "skipped" | "failed";
-export type SpectralIndexName =
-  | "NDVI"
-  | "GNDVI"
-  | "SAVI"
-  | "CIGREEN"
-  | "CIRED_EDGE"
-  | "NDRE"
-  | "MCARI"
-  | "VARI"
-  | "EXG";
+export type SpectralIndexName = string;
+export interface SpectralIndexDefinition {
+  index: SpectralIndexName;
+  formula_version: string;
+  formula: string;
+  required_bands: string[];
+  category: string;
+  description: string;
+  approximate: boolean;
+  unit: string;
+  expected_range: number[] | null;
+  aliases: string[];
+  allowed_parameters: string[];
+  default_parameters: Record<string, number>;
+  scientific_note: string | null;
+}
 export type AnalysisScope = "roi" | "full_image";
 
 export interface ProcessingStatistics {
@@ -420,6 +427,12 @@ export interface ProcessingResults {
       formula: string;
       required_bands: string[];
       parameters: Record<string, number>;
+      category?: string | null;
+      description?: string | null;
+      approximate?: boolean;
+      unit?: string | null;
+      expected_range?: number[] | null;
+      aliases?: string[];
       scientific_note?: string | null;
     }[];
     captures: {
@@ -460,6 +473,12 @@ export interface ProcessingRecipe {
     formula: string;
     required_bands: string[];
     parameters: Record<string, number>;
+    category?: string | null;
+    description?: string | null;
+    approximate?: boolean;
+    unit?: string | null;
+    expected_range?: number[] | null;
+    aliases?: string[];
     scientific_note?: string | null;
   }[];
   statistics: string[];
@@ -626,6 +645,8 @@ export const api = {
     request<undefined>(`/rois/${roiId}`, { method: "DELETE" }),
   listProcessingJobs: (datasetId: string) =>
     request<ProcessingJob[]>(`/datasets/${datasetId}/processing-jobs`),
+  listSpectralIndices: () =>
+    request<SpectralIndexDefinition[]>("/spectral-indices"),
   getProcessingJob: (jobId: string) =>
     request<ProcessingJob>(`/processing-jobs/${jobId}`),
   createProcessingJob: (

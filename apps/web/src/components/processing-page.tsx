@@ -22,23 +22,14 @@ import {
 import {
   api,
   type AnalysisScope,
+  type CaptureSummary,
   type ProcessingItem,
   type ProcessingJob,
   type ProcessingRecipe,
+  type SpectralIndexDefinition,
   type SpectralIndexName,
 } from "@/lib/api";
 
-const indexNames: SpectralIndexName[] = [
-  "NDVI",
-  "GNDVI",
-  "SAVI",
-  "CIGREEN",
-  "CIRED_EDGE",
-  "NDRE",
-  "MCARI",
-  "VARI",
-  "EXG",
-];
 const terminal = new Set([
   "completed",
   "completed_with_errors",
@@ -49,6 +40,9 @@ const terminal = new Set([
 export function ProcessingPage({ datasetId }: { datasetId: string }) {
   const [jobs, setJobs] = useState<ProcessingJob[]>([]);
   const [recipes, setRecipes] = useState<ProcessingRecipe[]>([]);
+  const [definitions, setDefinitions] = useState<SpectralIndexDefinition[]>([]);
+  const [captures, setCaptures] = useState<CaptureSummary[]>([]);
+  const [indexSearch, setIndexSearch] = useState("");
   const [recipeId, setRecipeId] = useState("");
   const [recipeName, setRecipeName] = useState("");
   const [activeId, setActiveId] = useState<string>();
@@ -59,6 +53,8 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
     new Set(["roi", "full_image"]),
   );
   const [saviL, setSaviL] = useState(0.5);
+  const [arviGamma, setArviGamma] = useState(1);
+  const [reflectanceScale, setReflectanceScale] = useState(1);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [savingRecipe, setSavingRecipe] = useState(false);
@@ -67,12 +63,17 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
 
   const load = useCallback(async () => {
     try {
-      const [values, storedRecipes] = await Promise.all([
-        api.listProcessingJobs(datasetId),
-        api.listProcessingRecipes(),
-      ]);
+      const [values, storedRecipes, spectralDefinitions, datasetCaptures] =
+        await Promise.all([
+          api.listProcessingJobs(datasetId),
+          api.listProcessingRecipes(),
+          api.listSpectralIndices(),
+          api.listCaptures(datasetId),
+        ]);
       setJobs(values);
       setRecipes(storedRecipes);
+      setDefinitions(spectralDefinitions);
+      setCaptures(datasetCaptures);
       setActiveId((current) => current ?? values[0]?.id);
       setError(undefined);
     } catch (cause) {
@@ -113,9 +114,38 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
       ),
     [active?.items],
   );
+  const availableBands = useMemo(() => {
+    if (!captures.length) return new Set<string>();
+    const intersection = new Set(captures[0]?.band_codes ?? []);
+    for (const capture of captures.slice(1)) {
+      const current = new Set(capture.band_codes);
+      for (const band of intersection) {
+        if (!current.has(band)) intersection.delete(band);
+      }
+    }
+    return intersection;
+  }, [captures]);
+  const filteredDefinitions = useMemo(() => {
+    const query = indexSearch.trim().toLocaleLowerCase("pt-BR");
+    if (!query) return definitions;
+    return definitions.filter((definition) =>
+      [
+        definition.index,
+        definition.description,
+        definition.category,
+        ...definition.aliases,
+      ].some((value) => value.toLocaleLowerCase("pt-BR").includes(query)),
+    );
+  }, [definitions, indexSearch]);
+  const incompatibleSelected = Array.from(selected).some((name) => {
+    const definition = definitions.find((value) => value.index === name);
+    return Boolean(
+      definition && missingBands(definition, availableBands).length,
+    );
+  });
 
   async function start() {
-    if (!selected.size || !analysisScopes.size) return;
+    if (!selected.size || !analysisScopes.size || incompatibleSelected) return;
     setSubmitting(true);
     setError(undefined);
     try {
@@ -129,7 +159,12 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
           : {
               indices: Array.from(selected).map((name) => ({
                 name,
-                ...(name === "SAVI" ? { parameters: { L: saviL } } : {}),
+                parameters: indexParameters(
+                  name,
+                  saviL,
+                  arviGamma,
+                  reflectanceScale,
+                ),
               })),
               analysis_scopes: Array.from(analysisScopes),
             },
@@ -158,6 +193,11 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
     setSelected(new Set(recipe.indices.map((value) => value.index)));
     const savi = recipe.indices.find((value) => value.index === "SAVI");
     if (savi?.parameters.L !== undefined) setSaviL(savi.parameters.L);
+    const arvi = recipe.indices.find((value) => value.index === "ARVI");
+    if (arvi?.parameters.gamma !== undefined)
+      setArviGamma(arvi.parameters.gamma);
+    const scale = recipe.indices[0]?.parameters.reflectance_scale;
+    if (scale !== undefined) setReflectanceScale(scale);
   }
 
   async function saveRecipe() {
@@ -169,7 +209,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
         name: recipeName.trim(),
         indices: Array.from(selected).map((name) => ({
           name,
-          ...(name === "SAVI" ? { parameters: { L: saviL } } : {}),
+          parameters: indexParameters(name, saviL, arviGamma, reflectanceScale),
         })),
         statistics: ["mean", "median", "std", "p05", "p25", "p75", "p95"],
       });
@@ -272,40 +312,129 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
             ))}
           </select>
         </label>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {indexNames.map((name) => (
-            <label
-              className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition ${selected.has(name) ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50"}`}
-              key={name}
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <label className="grid max-w-md flex-1 gap-2 text-sm font-medium">
+            Pesquisar índice
+            <input
+              className="border-input rounded-md border px-3 py-2"
+              onChange={(event) => setIndexSearch(event.target.value)}
+              placeholder="Nome, sigla, categoria ou descrição"
+              type="search"
+              value={indexSearch}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={() => {
+                setRecipeId("");
+                setSelected(
+                  new Set(
+                    definitions
+                      .filter(
+                        (definition) =>
+                          missingBands(definition, availableBands).length === 0,
+                      )
+                      .map((definition) => definition.index),
+                  ),
+                );
+              }}
+              type="button"
+              variant="outline"
             >
-              <input
-                className="mt-1"
-                checked={selected.has(name)}
-                onChange={() =>
-                  setSelected((current) => {
-                    setRecipeId("");
-                    const next = new Set(current);
-                    if (next.has(name)) next.delete(name);
-                    else next.add(name);
-                    return next;
-                  })
-                }
-                type="checkbox"
-              />
-              <span>
-                <strong className="text-sm">
-                  <TermHelp term={indexDisplayName(name)} />
-                </strong>
-                <small className="text-muted-foreground mt-1 block text-xs leading-4">
-                  {requiredBands(name)}
-                </small>
-                <code className="text-muted-foreground mt-2 block text-[0.68rem] leading-4">
-                  {indexFormula(name)}
-                </code>
-              </span>
-            </label>
-          ))}
+              Selecionar compatíveis
+            </Button>
+            <Button
+              onClick={() => {
+                setRecipeId("");
+                setSelected(new Set());
+              }}
+              type="button"
+              variant="ghost"
+            >
+              Desmarcar todos
+            </Button>
+          </div>
         </div>
+        <p className="text-muted-foreground mt-3 text-xs">
+          Bandas presentes em todas as {captures.length} repetição(ões):{" "}
+          {availableBands.size
+            ? Array.from(availableBands).map(displayBand).join(", ")
+            : "nenhuma banda científica comum"}
+        </p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredDefinitions.map((definition) => {
+            const unavailable = missingBands(definition, availableBands);
+            const name = definition.index;
+            const incompatible = unavailable.length > 0;
+            const disabled = incompatible && !selected.has(name);
+            return (
+              <label
+                className={`flex items-start gap-3 rounded-lg border p-4 transition ${
+                  disabled
+                    ? "cursor-not-allowed opacity-55"
+                    : selected.has(name)
+                      ? "border-primary bg-primary/5 cursor-pointer"
+                      : "border-border hover:bg-muted/50 cursor-pointer"
+                }`}
+                key={name}
+              >
+                <input
+                  className="mt-1"
+                  checked={selected.has(name)}
+                  disabled={disabled}
+                  onChange={() =>
+                    setSelected((current) => {
+                      setRecipeId("");
+                      const next = new Set(current);
+                      if (next.has(name)) next.delete(name);
+                      else next.add(name);
+                      return next;
+                    })
+                  }
+                  type="checkbox"
+                />
+                <span className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <strong className="text-sm">{displayIndex(name)}</strong>
+                    <small className="bg-muted rounded-full px-2 py-0.5 text-[0.65rem] font-medium">
+                      {categoryLabel(definition.category)}
+                    </small>
+                    {definition.approximate && (
+                      <small className="rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-semibold text-amber-900">
+                        Aproximado
+                      </small>
+                    )}
+                  </span>
+                  <small className="text-muted-foreground mt-1 block text-xs leading-4">
+                    {definition.description}
+                  </small>
+                  <small className="mt-2 block text-xs font-medium">
+                    {definition.required_bands.map(displayBand).join(" + ")}
+                  </small>
+                  <code className="text-muted-foreground mt-2 block text-[0.68rem] leading-4">
+                    {definition.formula}
+                  </code>
+                  {incompatible && (
+                    <small className="text-destructive mt-2 block text-xs font-medium">
+                      Banda(s) ausente(s):{" "}
+                      {unavailable.map(displayBand).join(", ")}
+                    </small>
+                  )}
+                  {definition.scientific_note && (
+                    <small className="mt-2 block text-xs leading-4 text-amber-800">
+                      {definition.scientific_note}
+                    </small>
+                  )}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        {!filteredDefinitions.length && (
+          <p className="text-muted-foreground mt-4 text-sm">
+            Nenhum índice corresponde à pesquisa.
+          </p>
+        )}
         {selected.has("SAVI") && (
           <label className="mt-5 grid max-w-xs gap-2 text-sm font-medium">
             Fator L do <TermHelp term="SAVI" />
@@ -324,6 +453,50 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
               exigir.
             </small>
           </label>
+        )}
+        {selected.has("ARVI") && (
+          <label className="mt-5 grid max-w-xs gap-2 text-sm font-medium">
+            Fator gamma do ARVI
+            <input
+              className="border-input w-24 rounded-md border px-3 py-2"
+              onChange={(event) => {
+                setRecipeId("");
+                setArviGamma(Number(event.target.value));
+              }}
+              step="0.1"
+              type="number"
+              value={arviGamma}
+            />
+            <small className="text-muted-foreground font-normal">
+              Valor padrão: 1.
+            </small>
+          </label>
+        )}
+        <label className="mt-5 grid max-w-md gap-2 text-sm font-medium">
+          Escala de reflectância
+          <input
+            className="border-input w-32 rounded-md border px-3 py-2"
+            min="0.0000001"
+            onChange={(event) => {
+              setRecipeId("");
+              setReflectanceScale(Number(event.target.value));
+            }}
+            step="any"
+            type="number"
+            value={reflectanceScale}
+          />
+          <small className="text-muted-foreground leading-5 font-normal">
+            Use 1 para reflectância 0–1. Para dados escalados, informe o divisor
+            documentado pelo sensor (por exemplo, 10.000). O sistema nunca
+            presume a escala automaticamente.
+          </small>
+        </label>
+        {incompatibleSelected && (
+          <p className="text-destructive mt-4 text-sm font-medium">
+            A receita selecionada contém índices incompatíveis com as bandas
+            comuns do dataset. Remova esses índices ou revise a associação de
+            bandas.
+          </p>
         )}
         <div className="mt-6">
           <h3 className="text-sm font-semibold">Área de análise</h3>
@@ -395,7 +568,14 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
               value={recipeName}
             />
             <Button
-              disabled={savingRecipe || !recipeName.trim() || !selected.size}
+              disabled={
+                savingRecipe ||
+                !recipeName.trim() ||
+                !selected.size ||
+                incompatibleSelected ||
+                !Number.isFinite(reflectanceScale) ||
+                reflectanceScale <= 0
+              }
               onClick={() => void saveRecipe()}
               type="button"
               variant="outline"
@@ -407,7 +587,12 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
         <Button
           className="mt-6"
           disabled={
-            submitting || selected.size === 0 || analysisScopes.size === 0
+            submitting ||
+            selected.size === 0 ||
+            analysisScopes.size === 0 ||
+            incompatibleSelected ||
+            !Number.isFinite(reflectanceScale) ||
+            reflectanceScale <= 0
           }
           onClick={() => void start()}
         >
@@ -598,33 +783,54 @@ function Metric({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function requiredBands(name: SpectralIndexName) {
-  if (name === "NDVI" || name === "SAVI") return "NIR + Red";
-  if (name === "GNDVI" || name === "CIGREEN") return "NIR + Green";
-  if (name === "CIRED_EDGE" || name === "NDRE") return "NIR + RedEdge";
-  if (name === "MCARI") return "Green + Red + RedEdge";
-  return "Green + Red + Blue";
-}
-
-function indexFormula(name: SpectralIndexName) {
-  const formulas: Record<SpectralIndexName, string> = {
-    NDVI: "(NIR - Red) / (NIR + Red)",
-    GNDVI: "(NIR - Green) / (NIR + Green)",
-    SAVI: "((NIR - Red) / (NIR + Red + L)) × (1 + L)",
-    CIGREEN: "(NIR / Green) - 1",
-    CIRED_EDGE: "(NIR / RedEdge) - 1",
-    NDRE: "(NIR - RedEdge) / (NIR + RedEdge)",
-    MCARI: "((RedEdge - Red) - 0.2 × (RedEdge - Green)) × (RedEdge / Red)",
-    VARI: "(Green - Red) / (Green + Red - Blue)",
-    EXG: "2 × Green - Red - Blue",
-  };
-  return formulas[name];
-}
-
-function indexDisplayName(name: SpectralIndexName) {
+function displayIndex(name: SpectralIndexName) {
   if (name === "CIGREEN") return "CIgreen";
   if (name === "CIRED_EDGE") return "CIred-edge";
-  return name === "EXG" ? "ExG" : name;
+  if (name === "MNDVI") return "mNDVI";
+  if (name === "MARI") return "mARI";
+  if (name === "NIRV") return "NIRv";
+  if (name === "EXG") return "ExG";
+  if (name === "EXR") return "ExR";
+  if (name === "EXGR") return "ExGR";
+  return name;
+}
+
+function displayBand(name: string) {
+  return name === "RED_EDGE" ? "RedEdge" : name;
+}
+
+function missingBands(
+  definition: SpectralIndexDefinition,
+  availableBands: Set<string>,
+) {
+  return definition.required_bands.filter((band) => !availableBands.has(band));
+}
+
+function categoryLabel(category: string) {
+  const labels: Record<string, string> = {
+    atmosphere_resistant: "Atmosfera",
+    chlorophyll: "Clorofila",
+    pigments: "Pigmentos",
+    red_edge: "RedEdge",
+    rgb_visible: "RGB / Visível",
+    soil_adjusted: "Ajustado ao solo",
+    vegetation: "Vegetação",
+  };
+  return labels[category] ?? category;
+}
+
+function indexParameters(
+  name: SpectralIndexName,
+  saviL: number,
+  arviGamma: number,
+  reflectanceScale: number,
+) {
+  const parameters: Record<string, number> = {
+    reflectance_scale: reflectanceScale,
+  };
+  if (name === "SAVI") parameters.L = saviL;
+  if (name === "ARVI") parameters.gamma = arviGamma;
+  return parameters;
 }
 
 function scopeLabel(value: "roi" | "full_image") {

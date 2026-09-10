@@ -12,7 +12,9 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from spectral_common import (
+    CURRENT_FORMULA_VERSIONS,
     DEFAULT_STATISTICS,
+    FORMULA_DEFINITIONS,
     SNAPSHOT_SCHEMA_VERSION,
     SOFTWARE_VERSION,
     get_formula_definition,
@@ -37,6 +39,7 @@ from spectral_api.schemas.processing import (
     ProcessingItemResponse,
     ProcessingJobCreate,
     ProcessingJobResponse,
+    SpectralIndexDefinitionResponse,
     StatisticsResponse,
 )
 from spectral_api.services.reproducibility import (
@@ -57,6 +60,35 @@ TERMINAL_JOBS = {
     ProcessingJobState.FAILED,
     ProcessingJobState.CANCELLED,
 }
+
+
+@router.get("/spectral-indices", response_model=list[SpectralIndexDefinitionResponse])
+async def list_spectral_indices(user: CurrentUser) -> list[SpectralIndexDefinitionResponse]:
+    """Return the current allow-listed scientific catalog from its single source of truth."""
+    del user
+    definitions = [
+        definition
+        for (name, version), definition in FORMULA_DEFINITIONS.items()
+        if CURRENT_FORMULA_VERSIONS.get(name) == version
+    ]
+    return [
+        SpectralIndexDefinitionResponse(
+            index=definition.index,
+            formula_version=definition.formula_version,
+            formula=definition.expression,
+            required_bands=list(definition.required_bands),
+            category=definition.category,
+            description=definition.description,
+            approximate=definition.approximate,
+            unit=definition.unit,
+            expected_range=(list(definition.expected_range) if definition.expected_range else None),
+            aliases=list(definition.aliases),
+            allowed_parameters=sorted(definition.allowed_parameters),
+            default_parameters=dict(definition.default_parameters),
+            scientific_note=definition.scientific_note,
+        )
+        for definition in sorted(definitions, key=lambda item: (item.category, item.index))
+    ]
 
 
 def _request_hash(dataset_id: UUID, payload: ProcessingJobCreate) -> str:
@@ -221,6 +253,23 @@ async def _resolve_configuration(
         recipe_indices = (
             [dict(value) for value in raw_indices] if isinstance(raw_indices, list) else []
         )
+        for stored in recipe_indices:
+            definition = get_formula_definition(
+                str(stored["index"]), str(stored["formula_version"])
+            )
+            stored["parameters"] = definition.parameters_with_defaults(
+                dict(stored.get("parameters", {}))
+            )
+            stored.setdefault("category", definition.category)
+            stored.setdefault("description", definition.description)
+            stored.setdefault("approximate", definition.approximate)
+            stored.setdefault("unit", definition.unit)
+            stored.setdefault(
+                "expected_range",
+                list(definition.expected_range) if definition.expected_range else None,
+            )
+            stored.setdefault("aliases", list(definition.aliases))
+            stored.setdefault("scientific_note", definition.scientific_note)
         statistics = (
             [str(value) for value in raw_statistics] if isinstance(raw_statistics, list) else []
         )
@@ -237,6 +286,14 @@ async def _resolve_configuration(
                 "formula": definition.expression,
                 "required_bands": list(definition.required_bands),
                 "parameters": definition.parameters_with_defaults(dict(requested.parameters)),
+                "category": definition.category,
+                "description": definition.description,
+                "approximate": definition.approximate,
+                "unit": definition.unit,
+                "expected_range": (
+                    list(definition.expected_range) if definition.expected_range else None
+                ),
+                "aliases": list(definition.aliases),
                 "scientific_note": definition.scientific_note,
             }
         )

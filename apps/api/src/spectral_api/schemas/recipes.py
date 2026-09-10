@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
-from spectral_api.schemas.processing import ProcessingIndexInput
+from spectral_api.schemas.processing import MAX_SPECTRAL_INDICES, ProcessingIndexInput
 
 StatisticName = Literal["count", "mean", "median", "min", "max", "std", "p05", "p25", "p75", "p95"]
 
@@ -14,7 +14,7 @@ StatisticName = Literal["count", "mean", "median", "min", "max", "std", "p05", "
 class ProcessingRecipeCreate(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=2_000)
-    indices: list[ProcessingIndexInput] = Field(min_length=1, max_length=9)
+    indices: list[ProcessingIndexInput] = Field(min_length=1, max_length=MAX_SPECTRAL_INDICES)
     statistics: list[StatisticName] = Field(min_length=1, max_length=10)
 
     @field_validator("name")
@@ -39,6 +39,12 @@ class RecipeIndexResponse(BaseModel):
     formula: str
     required_bands: list[str]
     parameters: dict[str, float]
+    category: str | None = None
+    description: str | None = None
+    approximate: bool = False
+    unit: str | None = None
+    expected_range: list[float] | None = None
+    aliases: list[str] = Field(default_factory=list)
     scientific_note: str | None = None
 
 

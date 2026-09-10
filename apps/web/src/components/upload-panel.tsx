@@ -259,7 +259,10 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
           while (cursor < queue.length) {
             const item = queue[cursor++];
             if (!item) continue;
-            const file = fileForUpload(filesByPath.current, item.client_relative_path);
+            const file = fileForUpload(
+              filesByPath.current,
+              item.client_relative_path,
+            );
             if (!file) {
               setError(
                 `Não foi possível localizar ${item.client_relative_path} na seleção local. Selecione a pasta novamente.`,
