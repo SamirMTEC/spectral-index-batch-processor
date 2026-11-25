@@ -11,6 +11,7 @@ from spectral_common.logging import configure_logging
 
 from spectral_api import __version__
 from spectral_api.routes.band_sequences import router as band_sequences_router
+from spectral_api.routes.calibration import router as calibration_router
 from spectral_api.routes.dashboard import router as dashboard_router
 from spectral_api.routes.datasets import router as datasets_router
 from spectral_api.routes.exports import router as exports_router
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     application.include_router(health_router)
     application.include_router(dashboard_router, prefix="/api/v1")
     application.include_router(band_sequences_router, prefix="/api/v1")
+    application.include_router(calibration_router, prefix="/api/v1")
     application.include_router(projects_router, prefix="/api/v1")
     application.include_router(recipes_router, prefix="/api/v1")
     application.include_router(processing_router, prefix="/api/v1")

@@ -113,7 +113,7 @@ export function ResultsPage({
   return (
     <div className="space-y-6">
       <WorkflowStepper
-        current={6}
+        current={import.meta.env.VITE_DESKTOP_LOCAL === "true" ? 7 : 6}
         datasetId={data?.overview.dataset_id}
         resultsHref={`/processing-jobs/${jobId}/results`}
       />
@@ -564,6 +564,7 @@ function Files({
 }) {
   const hasRoiResults = data.table.scopes.includes("roi");
   const hasFullImageResults = data.table.scopes.includes("full_image");
+  const hasCalibratedImages = Boolean(data.reproducibility.configuration.calibration_run_id);
 
   return (
     <section className="space-y-3">
@@ -681,8 +682,9 @@ function Files({
         </div>
         <p className="text-muted-foreground mt-4 text-xs leading-5">
           O pacote completo reúne tabelas, GeoTIFFs, ROIs, configuração,
-          manifesto e logs sem modificar os rasters científicos originais.
+          manifesto e logs{hasCalibratedImages ? ", além das imagens calibradas usadas nos índices" : ""} sem modificar os rasters científicos originais.
         </p>
+        {hasCalibratedImages && <Button onClick={() => void onCreate(["calibrated_rasters"])} size="sm" variant="outline"><Download /> Baixar imagens calibradas</Button>}
       </div>
       {!data.files.length && (
         <ProductEmptyState

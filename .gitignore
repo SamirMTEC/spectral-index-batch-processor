@@ -4,6 +4,7 @@
 .env.*
 !.env.example
 !.env.production
+!.env.desktop
 !.env.test
 !apps/web/.env.production.example
 
@@ -22,6 +23,7 @@ htmlcov/
 node_modules/
 apps/web/dist/
 apps/web/coverage/
+dist/
 
 # Editors and OS
 .idea/

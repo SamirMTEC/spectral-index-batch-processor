@@ -13,7 +13,8 @@ export interface ApplicationAuth {
 
 export const defaultApplicationAuth: ApplicationAuth = {
   enabled: false,
-  isAuthenticated: !import.meta.env.PROD,
+  isAuthenticated:
+    !import.meta.env.PROD || import.meta.env.VITE_DESKTOP_LOCAL === "true",
   isLoading: false,
   user: undefined,
   error: null,

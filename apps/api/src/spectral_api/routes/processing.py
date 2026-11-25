@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from spectral_api.dependencies import CurrentUser, get_session
 from spectral_api.domain.models import (
     AnalysisScope,
+    CalibrationRun,
     Capture,
     IndexResult,
     ProcessingItem,
@@ -94,9 +95,12 @@ async def list_spectral_indices(user: CurrentUser) -> list[SpectralIndexDefiniti
 def _request_hash(dataset_id: UUID, payload: ProcessingJobCreate) -> str:
     canonical = {
         "dataset_id": str(dataset_id),
-        "analysis_scopes": ["roi", "full_image"],
+        "analysis_scopes": sorted(scope.value for scope in payload.analysis_scopes),
         "indices": [item.model_dump(mode="json") for item in payload.indices],
         "capture_ids": sorted(str(value) for value in (payload.capture_ids or [])),
+        "calibration_run_id": str(payload.calibration_run_id)
+        if payload.calibration_run_id
+        else None,
         "timeout_seconds": payload.timeout_seconds,
         "max_attempts": payload.max_attempts,
         "recipe_id": str(payload.recipe_id) if payload.recipe_id else None,
@@ -445,6 +449,41 @@ async def create_processing_job(
     if payload.capture_ids and len(captures) != len(set(payload.capture_ids)):
         raise HTTPException(status_code=404, detail="One or more captures were not found")
 
+    calibration_run = None
+    calibrated_outputs: dict[str, dict[str, dict[str, Any]]] = {}
+    if payload.calibration_run_id:
+        calibration_run = await session.scalar(
+            select(CalibrationRun).where(
+                CalibrationRun.id == payload.calibration_run_id,
+                CalibrationRun.owner_id == user.id,
+                CalibrationRun.dataset_id == dataset_id,
+                CalibrationRun.state == "completed",
+            )
+        )
+        if (
+            not calibration_run
+            or not calibration_run.output_key
+            or not isinstance(calibration_run.result_json, dict)
+        ):
+            raise HTTPException(
+                status_code=409, detail="Selecione uma calibração concluída deste dataset"
+            )
+        result = calibration_run.result_json
+        for reference in result.get("reference_captures", []):
+            if isinstance(reference, dict):
+                calibrated_outputs[str(reference.get("capture_id"))] = {
+                    str(code).upper(): detail
+                    for code, detail in reference.get("bands", {}).items()
+                    if isinstance(detail, dict) and detail.get("output")
+                }
+        for target in result.get("targets", []):
+            if isinstance(target, dict) and target.get("state") == "completed":
+                calibrated_outputs[str(target.get("capture_id"))] = {
+                    str(code).upper(): detail
+                    for code, detail in target.get("bands", {}).items()
+                    if isinstance(detail, dict) and detail.get("output")
+                }
+
     indices = [str(item["index"]) for item in index_definitions]
     reproducibility_snapshot, provenance = await build_reproducibility_snapshot(
         session,
@@ -457,6 +496,49 @@ async def create_processing_job(
     selected_scopes = list(payload.analysis_scopes)
     serialized_scopes = [scope.value for scope in selected_scopes]
     reproducibility_snapshot["analysis_scopes"] = serialized_scopes
+    if calibration_run:
+        required_bands = {
+            str(band).upper()
+            for definition in index_definitions
+            for band in definition["required_bands"]
+        }
+        for capture in captures:
+            missing = required_bands - calibrated_outputs.get(str(capture.id), {}).keys()
+            if missing:
+                missing_label = ", ".join(sorted(missing))
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"A calibração não contém {capture.capture_key}: {missing_label}",
+                )
+            frozen = provenance[capture.id]
+            for inputs in frozen.inputs_by_index.values():
+                for band in inputs:
+                    details = calibrated_outputs[str(capture.id)][str(band["band"]).upper()]
+                    band["calibration_member"] = details["output"]
+                    band["calibration_run_id"] = str(calibration_run.id)
+                    band["source_filename"] = band["filename"]
+                    band["source_object_key"] = band["object_key"]
+                    band["source_checksum_sha256"] = band["checksum_sha256"]
+                    band["filename"] = band["calibration_member"].split("/")[-1]
+                    if details.get("object_key"):
+                        band["object_key"] = details["object_key"]
+                        band["object_version_id"] = None
+                        band["checksum_sha256"] = details.get("checksum_sha256")
+                    else:
+                        band["calibration_archive_key"] = calibration_run.output_key
+                        band["checksum_sha256"] = None
+            for snapshot_capture in reproducibility_snapshot["captures"]:
+                if snapshot_capture["capture_id"] == str(capture.id):
+                    snapshot_capture["calibration_run_id"] = str(calibration_run.id)
+                    snapshot_capture["calibrated_outputs"] = {
+                        code: details["output"]
+                        for code, details in calibrated_outputs[str(capture.id)].items()
+                    }
+        reproducibility_snapshot["radiometric_source"] = "calibrated"
+        reproducibility_snapshot["calibration_run_id"] = str(calibration_run.id)
+        reproducibility_snapshot["calibration_archive_key"] = calibration_run.output_key
+    else:
+        reproducibility_snapshot["radiometric_source"] = "original"
     job = ProcessingJob(
         id=uuid4(),
         project_id=dataset.project_id,
@@ -474,6 +556,7 @@ async def create_processing_job(
             "parameters": {str(item["index"]): item["parameters"] for item in index_definitions},
             "statistics": selected_statistics,
             "analysis_scopes": serialized_scopes,
+            "calibration_run_id": str(calibration_run.id) if calibration_run else None,
             "recipe_id": str(recipe.id) if recipe else None,
             "timeout_seconds": payload.timeout_seconds,
             "max_attempts": payload.max_attempts,

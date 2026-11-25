@@ -72,6 +72,15 @@ const workflow = [
   { label: "Processar", icon: Play },
   { label: "Resultados", icon: FileChartColumn },
 ] as const;
+const desktopWorkflow = [
+  workflow[0],
+  workflow[1],
+  { label: "Calibração", icon: SlidersHorizontal },
+  workflow[2],
+  workflow[3],
+  workflow[4],
+  workflow[5],
+] as const;
 
 export function WorkflowStepper({
   current,
@@ -82,14 +91,16 @@ export function WorkflowStepper({
   datasetId?: string | undefined;
   resultsHref?: string | undefined;
 }) {
+  const desktop = import.meta.env.VITE_DESKTOP_LOCAL === "true";
+  const visibleWorkflow = desktop ? desktopWorkflow : workflow;
   return (
     <nav aria-label="Etapas da análise" className="workflow-stepper">
       <div className="workflow-stepper__heading">
         <span>Fluxo da análise</span>
-        <small>Etapa {current} de 6</small>
+        <small>Etapa {current} de {visibleWorkflow.length}</small>
       </div>
-      <ol>
-        {workflow.map((step, index) => {
+      <ol style={desktop ? { gridTemplateColumns: "repeat(7, minmax(7rem, 1fr))", minWidth: "55rem" } : undefined}>
+        {visibleWorkflow.map((step, index) => {
           const number = index + 1;
           const Icon = step.icon;
           const state =
@@ -98,7 +109,17 @@ export function WorkflowStepper({
               : number === current
                 ? "current"
                 : "upcoming";
-          const href =
+          const href = desktop ? (
+            datasetId && number <= 2
+              ? `/datasets/${datasetId}${number === 1 ? "#upload" : "#bands"}`
+              : datasetId && number === 3
+                ? `/datasets/${datasetId}/calibration`
+                : datasetId && number === 4
+                  ? `/datasets/${datasetId}#captures`
+                  : datasetId && (number === 5 || number === 6)
+                    ? `/datasets/${datasetId}/processing`
+                    : number === 7 ? resultsHref : undefined
+          ) :
             datasetId && number <= 3
               ? `/datasets/${datasetId}${number === 1 ? "#upload" : number === 2 ? "#bands" : "#captures"}`
               : datasetId && (number === 4 || number === 5)

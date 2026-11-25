@@ -11,6 +11,7 @@ import { configureAccessTokenProvider } from "@/lib/api";
 const domain = import.meta.env.VITE_AUTH0_DOMAIN?.trim();
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID?.trim();
 const audience = import.meta.env.VITE_AUTH0_AUDIENCE?.trim();
+const desktopLocal = import.meta.env.VITE_DESKTOP_LOCAL === "true";
 // Bump when public authentication settings change so immutable CDN assets are invalidated.
 const configurationRevision = "auth0-production-v1";
 const providedValues = [domain, clientId, audience].filter(Boolean).length;
@@ -18,7 +19,7 @@ const isConfigured = providedValues === 3;
 const configurationError =
   providedValues > 0 && !isConfigured
     ? "A configuração do Auth0 está incompleta."
-    : import.meta.env.PROD && !isConfigured
+    : import.meta.env.PROD && !isConfigured && !desktopLocal
       ? "A autenticação de produção ainda não foi configurada."
       : null;
 

@@ -24,6 +24,7 @@ import {
   WorkflowStepper,
 } from "@/components/product-ui";
 import { ROIEditor } from "@/components/roi-editor";
+import { CalibrationPage } from "@/components/calibration-page";
 import { ProcessingPage } from "@/components/processing-page";
 import { ResultsPage } from "@/components/results-page";
 import { UploadPanel } from "@/components/upload-panel";
@@ -744,6 +745,7 @@ function NewDataset({ id }: { id: string }) {
 function DatasetPage({ id }: { id: string }) {
   const loader = useCallback(() => api.getDataset(id), [id]);
   const [state, retry] = useData(loader, id);
+  const [imageChangeVersion, setImageChangeVersion] = useState(0);
   async function remove() {
     if (
       state.status === "success" &&
@@ -767,6 +769,9 @@ function DatasetPage({ id }: { id: string }) {
             title={state.data.name}
             action={
               <div className="flex gap-2">
+                <Button onClick={() => go(`/datasets/${id}/calibration`)} variant="outline">
+                  <ScanLine /> Calibração radiométrica
+                </Button>
                 <Button onClick={() => go(`/datasets/${id}/processing`)}>
                   <ScanLine /> Processar índices
                 </Button>
@@ -779,7 +784,7 @@ function DatasetPage({ id }: { id: string }) {
           <WorkflowStepper
             current={
               state.data.state === "ready"
-                ? 4
+                ? (import.meta.env.VITE_DESKTOP_LOCAL === "true" ? 3 : 4)
                 : state.data.state === "needs_review"
                   ? 2
                   : 1
@@ -821,13 +826,13 @@ function DatasetPage({ id }: { id: string }) {
             </div>
           </div>
           <div id="upload">
-            <UploadPanel datasetId={state.data.id} />
+            <UploadPanel datasetId={state.data.id} onImagesChanged={() => { setImageChangeVersion((current) => current + 1); retry(); }} />
           </div>
           <div id="bands">
             <BandSequenceSettings dataset={state.data} onSaved={retry} />
           </div>
           <div id="captures">
-            <CaptureList datasetId={state.data.id} />
+            <CaptureList datasetId={state.data.id} imageChangeVersion={imageChangeVersion} />
           </div>
         </>
       )}
@@ -1060,9 +1065,9 @@ function BandSequenceSettings({
   );
 }
 
-function CaptureList({ datasetId }: { datasetId: string }) {
+function CaptureList({ datasetId, imageChangeVersion = 0 }: { datasetId: string; imageChangeVersion?: number }) {
   const loader = useCallback(() => api.listCaptures(datasetId), [datasetId]);
-  const [state, retry] = useData(loader, `captures-${datasetId}`);
+  const [state, retry] = useData(loader, `captures-${datasetId}-${imageChangeVersion}`);
   return (
     <section className="mt-10">
       <SectionHeading
@@ -1118,9 +1123,13 @@ function CaptureList({ datasetId }: { datasetId: string }) {
 }
 
 function CaptureROIPage({ id }: { id: string }) {
+  const [datasetId, setDatasetId] = useState<string>();
+  useEffect(() => {
+    void api.getCapture(id).then((capture) => setDatasetId(capture.dataset_id), () => undefined);
+  }, [id]);
   return (
     <Shell>
-      <WorkflowStepper current={3} />
+      <WorkflowStepper current={import.meta.env.VITE_DESKTOP_LOCAL === "true" ? 4 : 3} datasetId={datasetId} />
       <div className="desktop-recommended mb-4 items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
         <ScanLine className="mt-0.5 size-4 shrink-0" />
         <p>
@@ -1136,6 +1145,12 @@ function CaptureROIPage({ id }: { id: string }) {
 export function App() {
   const path = usePath();
   const auth = useApplicationAuth();
+  if (
+    import.meta.env.VITE_DESKTOP_LOCAL === "true" &&
+    (path === "/" || path === "/login")
+  ) {
+    return <DashboardPage />;
+  }
   if (path === "/") return <LandingPage />;
   if (path === "/login") return <LoginPage />;
   if (auth.isLoading) {
@@ -1156,6 +1171,13 @@ export function App() {
   const dataset = /^\/datasets\/([^/]+)$/.exec(path);
   if (dataset?.[1] !== undefined) return <DatasetPage id={dataset[1]} />;
   const processing = /^\/datasets\/([^/]+)\/processing$/.exec(path);
+  const calibration = /^\/datasets\/([^/]+)\/calibration$/.exec(path);
+  if (calibration?.[1] !== undefined)
+    return (
+      <Shell>
+        <CalibrationPage datasetId={calibration[1]} />
+      </Shell>
+    );
   if (processing?.[1] !== undefined)
     return (
       <Shell>

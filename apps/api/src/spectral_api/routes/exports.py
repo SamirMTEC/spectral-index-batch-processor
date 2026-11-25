@@ -29,6 +29,7 @@ ARTIFACT_TYPES: dict[ExportFormat, str] = {
     "logs": "processing_log",
     "rasters_roi": "roi_rasters_zip",
     "rasters_full_image": "full_image_rasters_zip",
+    "calibrated_rasters": "calibrated_rasters_zip",
     "complete": "bundle_zip",
 }
 
@@ -86,6 +87,12 @@ async def create_exports(
             status_code=409, detail="Exports are available after processing finishes"
         )
     requested_types = {ARTIFACT_TYPES[format_name] for format_name in payload.formats}
+    if "calibrated_rasters_zip" in requested_types and not job.configuration_snapshot.get(
+        "calibration_run_id"
+    ):
+        raise HTTPException(
+            status_code=409, detail="Este processamento não usou imagens calibradas"
+        )
     existing = list(
         await session.scalars(
             select(ExportArtifact).where(

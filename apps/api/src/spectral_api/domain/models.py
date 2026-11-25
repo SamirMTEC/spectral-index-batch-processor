@@ -507,6 +507,58 @@ class BandAsset(ProjectOwnedResource, Base):
     )
 
 
+class CalibrationPanel(TimestampMixin, Base):
+    """Researcher-owned panel certificate and explicit per-band reference values."""
+
+    __tablename__ = "calibration_panels"
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    manufacturer: Mapped[str | None] = mapped_column(String(160))
+    model: Mapped[str | None] = mapped_column(String(160))
+    serial_number: Mapped[str | None] = mapped_column(String(160))
+    calibrated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    certificate_key: Mapped[str | None] = mapped_column(String(1024))
+    certificate_sha256: Mapped[str | None] = mapped_column(String(64))
+    values_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    source_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
+class CalibrationRun(TimestampMixin, Base):
+    """Immutable run inputs and auditable outputs, also used for saved drafts."""
+
+    __tablename__ = "calibration_runs"
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), index=True
+    )
+    project_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("projects.id", ondelete="RESTRICT"), index=True
+    )
+    dataset_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("datasets.id", ondelete="RESTRICT"), index=True
+    )
+    capture_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("captures.id", ondelete="RESTRICT"), index=True
+    )
+    panel_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("calibration_panels.id", ondelete="RESTRICT"), index=True
+    )
+    state: Mapped[str] = mapped_column(String(24), nullable=False, default="draft")
+    method: Mapped[str] = mapped_column(String(24), nullable=False)
+    input_mode: Mapped[str] = mapped_column(String(24), nullable=False)
+    config_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    manifest_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    result_json: Mapped[dict[str, object] | None] = mapped_column(JSON)
+    output_key: Mapped[str | None] = mapped_column(String(1024))
+    error: Mapped[str | None] = mapped_column(Text)
+
+
 class ROI(ProjectOwnedResource, Base):
     __tablename__ = "rois"
 

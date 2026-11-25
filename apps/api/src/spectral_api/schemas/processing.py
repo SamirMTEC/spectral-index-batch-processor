@@ -67,6 +67,7 @@ class ProcessingJobCreate(BaseModel):
     )
     recipe_id: UUID | None = None
     capture_ids: list[UUID] | None = Field(default=None, max_length=10_000)
+    calibration_run_id: UUID | None = None
     analysis_scopes: list[AnalysisScope] = Field(
         default_factory=lambda: [AnalysisScope.ROI, AnalysisScope.FULL_IMAGE],
         min_length=1,

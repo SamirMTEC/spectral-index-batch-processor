@@ -13,6 +13,7 @@ from zipfile import BadZipFile, ZipFile, ZipInfo
 
 import numpy as np
 import rasterio
+from spectral_engine.calibration import parse_raster_metadata
 from rasterio.enums import Resampling
 from rasterio.errors import NotGeoreferencedWarning, RasterioError
 from rasterio.io import MemoryFile
@@ -154,6 +155,13 @@ def inspect_raster(
                 driver=source.driver,
                 color_interpretation=[value.name for value in source.colorinterp],
                 descriptions=list(source.descriptions),
+                calibration=parse_raster_metadata(
+                    source.tags(),
+                    source.tags(ns="EXIF"),
+                    source.tags(ns="xml:XMP").get("xml:XMP"),
+                    dtype=source.dtypes[0],
+                    count=source.count,
+                ),
             )
             return RasterMetadata(
                 filename=display_name or path.name,

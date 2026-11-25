@@ -1,5 +1,18 @@
 # Backend local com frontend no Cloudflare Pages
 
+## Recuperação do MinIO em 11/11/2026
+
+O volume original `spectral-index_minio-data` apresentou erro de sistema de arquivos em
+`.minio.sys/tmp` e foi preservado sem reparo destrutivo. Os dados legíveis foram copiados
+para `spectral-index_minio-recovered-20261111`. O arquivo
+`docker-compose.recovered-minio.yml` monta o volume recuperado no serviço MinIO.
+Nesta máquina, `.env` inclui os três arquivos Compose em `COMPOSE_FILE`; use
+`docker compose up -d` para preservar essa montagem em futuras atualizações.
+Executar apenas os dois arquivos do roteiro antigo voltaria a montar o volume danificado.
+O backup dos objetos legíveis está em `.local/minio-recovery-20261111/` e o dump do
+PostgreSQL anterior ao módulo de calibração em `.local/deploy-backup-20261111/`.
+O backup do MinIO excluiu somente o diretório temporário ilegível.
+
 ## Implantação desta máquina (configurada em 08/09/2026)
 
 O túnel `spectral-index-local` usa o identificador público

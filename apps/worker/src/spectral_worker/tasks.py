@@ -9,6 +9,7 @@ from uuid import UUID
 from billiard.exceptions import SoftTimeLimitExceeded
 from spectral_common import get_settings
 
+from spectral_worker.calibration import CalibrationProcessor
 from spectral_worker.celery_app import celery_app
 from spectral_worker.exporting import ExportGenerator
 from spectral_worker.processing import (
@@ -79,3 +80,25 @@ generate_exports: Any = celery_app.task(
     acks_late=True,
     reject_on_worker_lost=True,
 )(_generate_exports)
+
+
+async def _run_calibration_async(run_id: str) -> None:
+    processor = CalibrationProcessor(get_settings())
+    try:
+        await processor.process(UUID(run_id))
+    except Exception as error:
+        await processor.mark_failed(UUID(run_id), error)
+        raise
+    finally:
+        await processor.close()
+
+
+def _run_calibration(run_id: str) -> None:
+    asyncio.run(_run_calibration_async(run_id))
+
+
+run_calibration: Any = celery_app.task(
+    name="spectral.calibration.run",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)(_run_calibration)

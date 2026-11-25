@@ -10,11 +10,12 @@ RUN python -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 COPY packages/python /build/common
+COPY packages/science /build/science
 COPY apps/api /build/api
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --upgrade pip \
-    && python -m pip install /build/common /build/api
+    && python -m pip install /build/common /build/science /build/api
 
 FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 

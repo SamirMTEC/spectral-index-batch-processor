@@ -1,4 +1,4 @@
-import { Archive, CloudUpload, FolderOpen, RotateCw, X } from "lucide-react";
+import { Archive, CloudUpload, FolderOpen, RotateCw, Trash2, Undo2, X } from "lucide-react";
 import {
   type ChangeEvent,
   useCallback,
@@ -24,6 +24,7 @@ import {
 
 const acceptedImages = ".tif,.tiff,.png,.jpg,.jpeg";
 const terminalStates = new Set(["valid", "invalid", "failed"]);
+const desktopLocal = import.meta.env.VITE_DESKTOP_LOCAL === "true";
 
 interface SelectedFile {
   file: File;
@@ -96,12 +97,14 @@ function putBlob(
   });
 }
 
-export function UploadPanel({ datasetId }: { datasetId: string }) {
+export function UploadPanel({ datasetId, onImagesChanged }: { datasetId: string; onImagesChanged?: () => void }) {
   const [sessions, setSessions] = useState<UploadSession[]>([]);
   const [progress, setProgress] = useState<Record<string, number>>({});
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showRemoved, setShowRemoved] = useState(false);
+  const [changingImageId, setChangingImageId] = useState<string | null>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const filesByPath = useRef(new Map<string, File>());
   const controllers = useRef(new Map<string, AbortController>());
@@ -334,6 +337,36 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
     }
   }
 
+  async function changeRemoved(session: UploadSession, item: UploadObject, restore: boolean) {
+    if (!restore && !window.confirm(
+      `Remover ${item.filename} deste dataset? Os arquivos originais e as calibrações já geradas serão preservados.`,
+    )) return;
+    setChangingImageId(item.id);
+    setError(undefined);
+    try {
+      const updated = restore
+        ? await api.restoreDesktopImage(session.id, item.id)
+        : await api.archiveDesktopImage(session.id, item.id);
+      replaceObject(session.id, updated);
+      await refresh();
+      onImagesChanged?.();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a imagem");
+    } finally {
+      setChangingImageId(null);
+    }
+  }
+
+  const removedCount = sessions.reduce((total, session) => total + session.objects.filter(
+    (item) => Boolean(item.metadata_json.desktop_removed_at),
+  ).length, 0);
+  const visibleSessions = sessions.map((session) => ({
+    ...session,
+    objects: session.objects.filter(
+      (item) => showRemoved || !item.metadata_json.desktop_removed_at,
+    ),
+  })).filter((session) => session.objects.length > 0);
+
   return (
     <section className="surface mt-10 p-6">
       <SectionHeading
@@ -401,6 +434,7 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
         Formatos científicos: .tif e .tiff · Checksum SHA-256 calculado para
         rastreabilidade · Upload direto, sem passagem desnecessária pela API.
       </p>
+      {desktopLocal && removedCount > 0 && <Button className="mt-3" onClick={() => setShowRemoved((current) => !current)} type="button" variant="outline">{showRemoved ? "Ocultar removidas" : `Exibir removidas (${removedCount})`}</Button>}
       {error && (
         <div className="mt-4">
           <ErrorState message={error} />
@@ -411,7 +445,7 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
           <InlineLoader label="Transferindo até quatro arquivos em paralelo…" />
         </div>
       )}
-      {!loading && sessions.length === 0 && (
+      {!loading && visibleSessions.length === 0 && (
         <div className="mt-6">
           <EmptyState
             description="Escolha arquivos, uma pasta ou um ZIP. O progresso e a validação de cada item aparecerão aqui."
@@ -421,14 +455,14 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
         </div>
       )}
       <div className="mt-6 space-y-5">
-        {sessions.map((session) => (
+        {visibleSessions.map((session) => (
           <article
             className="border-border bg-card overflow-hidden rounded-xl border"
             key={session.id}
           >
             <header className="bg-muted/40 flex items-center justify-between gap-4 px-4 py-3 text-sm">
               <span className="font-medium">
-                {modeLabel(session.mode)} · {session.total_files} arquivo(s) ·{" "}
+                {modeLabel(session.mode)} · {session.objects.length} arquivo(s) exibido(s) ·{" "}
                 {humanSize(session.total_bytes)}
               </span>
               {session.state === "uploading" && (
@@ -475,8 +509,9 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
                         {Math.round(percent)}%
                       </span>
                     </div>
-                    <StatusBadge value={item.state} />
-                    {item.state === "failed" ? (
+                    {item.metadata_json.desktop_removed_at ? <span className="text-muted-foreground text-xs">Removida</span> : <StatusBadge value={item.state} />}
+                    <div className="flex flex-wrap items-center gap-2">
+                    {item.state === "failed" && !item.metadata_json.desktop_removed_at ? (
                       <Button
                         onClick={() => void retry(session, item)}
                         size="sm"
@@ -493,6 +528,8 @@ export function UploadPanel({ datasetId }: { datasetId: string }) {
                             : "")}
                       </span>
                     )}
+                    {desktopLocal && item.role !== "archive" && terminalStates.has(item.state) && <Button disabled={changingImageId === item.id} onClick={() => void changeRemoved(session, item, Boolean(item.metadata_json.desktop_removed_at))} size="sm" type="button" variant="outline">{item.metadata_json.desktop_removed_at ? <Undo2 /> : <Trash2 />}{item.metadata_json.desktop_removed_at ? "Restaurar" : "Remover"}</Button>}
+                    </div>
                   </div>
                 );
               })}

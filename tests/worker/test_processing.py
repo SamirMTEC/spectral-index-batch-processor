@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from uuid import uuid4
+from zipfile import ZipFile
 
 import numpy as np
 import pytest
@@ -25,6 +26,46 @@ def write_band(path: Path, values: np.ndarray) -> None:
         transform=Affine.translation(-40, -12) @ Affine.scale(0.01, -0.01),
     ) as output:
         output.write(values, 1)
+
+
+@pytest.mark.asyncio
+async def test_calibrated_tiffs_are_read_from_selected_run(tmp_path: Path) -> None:
+    archive_path = tmp_path / "source.zip"
+    red = tmp_path / "calibrated-red.tif"
+    nir = tmp_path / "calibrated-nir.tif"
+    write_band(red, np.full((4, 4), 0.2, dtype=np.float32))
+    write_band(nir, np.full((4, 4), 0.6, dtype=np.float32))
+    with ZipFile(archive_path, "w") as archive:
+        archive.write(red, "captures/R1/DJI_RED_calibrated.tif")
+        archive.write(nir, "captures/R1/DJI_NIR_calibrated.tif")
+
+    class FakeS3:
+        def download_file(self, _bucket: str, _key: str, destination: str) -> None:
+            Path(destination).write_bytes(archive_path.read_bytes())
+
+    processor = object.__new__(ProcessingItemProcessor)
+    processor.s3 = FakeS3()
+    processor.settings = type("Settings", (), {"s3_bucket": "test"})()
+    assets = {
+        code: {
+            "original_filename": f"DJI_{code}_calibrated.tif",
+            "calibration_archive_key": "run.zip",
+            "calibration_member": f"captures/R1/DJI_{code}_calibrated.tif",
+        }
+        for code in ("RED", "NIR")
+    }
+    paths = await processor._download_bands(assets, tmp_path)
+    output_path = tmp_path / "NDVI.tif"
+    statistics, _ = processor._calculate_windowed(
+        {
+            "id": uuid4(),
+            "index_name": "NDVI",
+            "parameters_snapshot": {"reflectance_scale": 1},
+            "analysis_scope": "full_image",
+        },
+        assets, paths, output_path, tmp_path,
+    )
+    assert statistics.mean == pytest.approx(0.5)
 
 
 def test_worker_required_bands_follow_the_complete_central_catalog() -> None:

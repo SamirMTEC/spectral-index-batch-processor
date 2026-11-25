@@ -11,6 +11,7 @@ from spectral_api.domain.models import (
     AssetRole,
     BandAsset,
     BandAssetState,
+    CalibrationRun,
     Capture,
     Dataset,
     ExportArtifact,
@@ -100,6 +101,109 @@ async def seed_ready_capture(app: FastAPI, client: AsyncClient) -> tuple[str, st
     )
     assert roi.status_code == 201
     return dataset_id, str(capture.id)
+
+
+async def test_calibrated_index_job_freezes_calibrated_tiffs_and_rejects_missing_bands(
+    domain_app: FastAPI,
+) -> None:
+    async with client_for(domain_app) as client:
+        dataset_id, capture_id = await seed_ready_capture(domain_app, client)
+        async with domain_app.state.session_factory() as session:
+            dataset = await session.get(Dataset, UUID(dataset_id))
+            assert dataset is not None
+            run = CalibrationRun(
+                id=uuid4(),
+                owner_id=dataset.owner_id,
+                project_id=dataset.project_id,
+                dataset_id=dataset.id,
+                capture_id=UUID(capture_id),
+                panel_id=uuid4(),
+                state="completed",
+                method="proportional",
+                input_mode="p4_signal",
+                config_json={},
+                manifest_json={},
+                result_json={
+                    "reference_captures": [{
+                        "capture_id": capture_id,
+                        "bands": {
+                            "RED": {"output": "RED_calibrated.tif"},
+                            "NIR": {"output": "NIR_calibrated.tif"},
+                        },
+                    }],
+                    "targets": [],
+                },
+                output_key="calibration/results/test/calibration-export.zip",
+            )
+            session.add(run)
+            await session.commit()
+            run_id = str(run.id)
+        response = await client.post(
+            f"/api/v1/datasets/{dataset_id}/processing-jobs",
+            json={
+                "indices": [{"name": "NDVI"}],
+                "analysis_scopes": ["full_image"],
+                "calibration_run_id": run_id,
+            },
+        )
+        assert response.status_code == 201, response.text
+        async with domain_app.state.session_factory() as session:
+            item = await session.scalar(
+                select(ProcessingItem).where(ProcessingItem.job_id == UUID(response.json()["id"]))
+            )
+            assert item is not None
+            assert {band["calibration_member"] for band in item.input_snapshot} == {
+                "RED_calibrated.tif", "NIR_calibrated.tif"
+            }
+            assert all(
+                band["calibration_archive_key"] == "calibration/results/test/calibration-export.zip"
+                for band in item.input_snapshot
+            )
+        missing = await client.post(
+            f"/api/v1/datasets/{dataset_id}/processing-jobs",
+            json={
+                "indices": [{"name": "VARI"}],
+                "analysis_scopes": ["full_image"],
+                "calibration_run_id": run_id,
+            },
+        )
+        assert missing.status_code == 409
+        async with domain_app.state.session_factory() as session:
+            stored = await session.get(CalibrationRun, UUID(run_id))
+            assert stored is not None and isinstance(stored.result_json, dict)
+            result = dict(stored.result_json)
+            references = list(result["reference_captures"])
+            first = dict(references[0])
+            first["bands"] = {
+                code: {
+                    "output": f"{code}_calibrated.tif",
+                    "object_key": f"calibration/results/test/bands/{code}.tif",
+                    "checksum_sha256": f"{number:064x}",
+                }
+                for number, code in enumerate(("RED", "NIR"), 1)
+            }
+            result["reference_captures"] = [first]
+            stored.result_json = result
+            await session.commit()
+        direct = await client.post(
+            f"/api/v1/datasets/{dataset_id}/processing-jobs",
+            json={
+                "indices": [{"name": "NDVI"}],
+                "analysis_scopes": ["roi"],
+                "calibration_run_id": run_id,
+            },
+        )
+        assert direct.status_code == 201, direct.text
+        async with domain_app.state.session_factory() as session:
+            item = await session.scalar(
+                select(ProcessingItem).where(ProcessingItem.job_id == UUID(direct.json()["id"]))
+            )
+            assert item is not None
+            assert all(
+                band["object_key"].startswith("calibration/results/test/bands/")
+                for band in item.input_snapshot
+            )
+            assert all("calibration_archive_key" not in band for band in item.input_snapshot)
 
 
 async def test_job_creation_is_idempotent_and_uses_real_item_count(domain_app: FastAPI) -> None:

@@ -11,6 +11,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 from uuid import UUID, uuid4
+from zipfile import ZipFile
 
 import boto3
 import numpy as np
@@ -249,6 +250,8 @@ class ProcessingItemProcessor:
                     "height": frozen.get("height"),
                     "crs": frozen.get("crs"),
                     "transform": frozen.get("transform"),
+                    "calibration_archive_key": frozen.get("calibration_archive_key"),
+                    "calibration_member": frozen.get("calibration_member"),
                 }
             missing = [code for code in required if code not in assets]
             if missing:
@@ -284,9 +287,34 @@ class ProcessingItemProcessor:
         self, assets: dict[str, dict[str, Any]], workdir: Path
     ) -> dict[str, Path]:
         paths: dict[str, Path] = {}
+        archives: dict[str, Path] = {}
         for code, asset in assets.items():
             self.current_file = str(asset["original_filename"])
             path = workdir / f"{code.lower()}.tif"
+            archive_key = asset.get("calibration_archive_key")
+            member = asset.get("calibration_member")
+            if archive_key:
+                if not isinstance(member, str) or not member.lower().endswith(".tif"):
+                    raise ValueError(f"Invalid calibrated TIFF member for {code}")
+                if archive_key not in archives:
+                    archive_path = workdir / f"calibration-{len(archives)}.zip"
+                    await asyncio.to_thread(
+                        self.s3.download_file,
+                        self.settings.s3_bucket,
+                        archive_key,
+                        str(archive_path),
+                    )
+                    archives[archive_key] = archive_path
+                with ZipFile(archives[archive_key]) as package:
+                    info = package.getinfo(member)
+                    if info.is_dir() or info.file_size > 2_000_000_000:
+                        raise ValueError(f"Invalid calibrated TIFF size for {code}")
+                    with package.open(info) as source, path.open("wb") as destination:
+                        import shutil
+
+                        shutil.copyfileobj(source, destination)
+                paths[code] = path
+                continue
             extra = (
                 {"VersionId": asset["object_version_id"]} if asset["object_version_id"] else None
             )

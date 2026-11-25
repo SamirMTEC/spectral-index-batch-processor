@@ -1,0 +1,35 @@
+# Overlay for a local, offline desktop installation. Never use with the public tunnel overlay.
+services:
+  api:
+    image: spectral-index-desktop:0.6.0
+    environment:
+      SPECTRAL_DESKTOP_MODE: "true"
+      SPECTRAL_ENVIRONMENT: development
+      SPECTRAL_DEV_AUTH_ENABLED: "true"
+      SPECTRAL_API_WORKERS: "1"
+      SPECTRAL_CORS_ORIGINS: '["${DESKTOP_WEB_ORIGIN}"]'
+      SPECTRAL_S3_PUBLIC_ENDPOINT_URL: ${DESKTOP_STORAGE_URL}
+  migrate:
+    image: spectral-index-desktop:0.6.0
+    environment:
+      SPECTRAL_ENVIRONMENT: development
+      SPECTRAL_DEV_AUTH_ENABLED: "true"
+      SPECTRAL_API_WORKERS: "1"
+  worker:
+    image: spectral-index-desktop:0.6.0
+    entrypoint: ["spectral-worker-entrypoint"]
+    environment:
+      SPECTRAL_ENVIRONMENT: development
+      SPECTRAL_DEV_AUTH_ENABLED: "true"
+  processing-worker:
+    image: spectral-index-desktop:0.6.0
+    entrypoint: ["spectral-worker-entrypoint"]
+    environment:
+      SPECTRAL_ENVIRONMENT: development
+      SPECTRAL_DEV_AUTH_ENABLED: "true"
+  minio:
+    environment:
+      MINIO_API_CORS_ALLOW_ORIGIN: ${DESKTOP_WEB_ORIGIN}
+  minio-init:
+    image: spectral-index-desktop:0.6.0
+    entrypoint: ["python", "/opt/spectral/desktop/init_storage.py"]

@@ -1,4 +1,5 @@
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+const desktopLocal = import.meta.env.VITE_DESKTOP_LOCAL === "true";
 const externalAuthConfigured = Boolean(
   import.meta.env.VITE_AUTH0_DOMAIN &&
   import.meta.env.VITE_AUTH0_CLIENT_ID &&
@@ -127,6 +128,124 @@ export interface UploadSession {
 export type AlignmentStatus =
   "unknown" | "compatible" | "requires_transform" | "incompatible";
 export type ROIGeometryType = "rectangle" | "polygon";
+
+export interface CalibrationBand {
+  id: string;
+  band: string;
+  filename: string;
+  width: number;
+  height: number;
+  dtype: string;
+  count: number;
+  sha256: string;
+  preview_url: string | null;
+  p4_signal_available: boolean;
+  metadata: Record<string, unknown>;
+}
+
+export interface CalibrationPanel {
+  id: string;
+  name: string;
+  manufacturer: string | null;
+  model: string | null;
+  serial_number: string | null;
+  calibrated_at: string | null;
+  notes: string | null;
+  values: Record<string, Record<string, number>>;
+  source: { kind: string; label: string; certified: boolean };
+  certificate_sha256: string | null;
+}
+
+export interface CalibrationROI {
+  surface: string;
+  band: string | null;
+  coordinates: [number, number][];
+  role: "fit" | "validation";
+}
+
+export interface CalibrationRunInput {
+  dataset_id: string;
+  capture_id: string;
+  target_capture_ids?: string[];
+  additional_references?: { capture_id: string; rois: CalibrationROI[] }[];
+  target_reference_map?: Record<string, string>;
+  reference_combination?: "per_target" | "mean_coefficients";
+  session_name?: string | null;
+  session_date?: string | null;
+  session_timezone?: string | null;
+  illumination_method?: "stable_panel" | "not_assessed";
+  illumination_notes?: string | null;
+  panel_id: string;
+  method: "proportional" | "linear";
+  input_mode: "p4_signal" | "dn_empirical";
+  rois: CalibrationROI[];
+  reference_band: string;
+  selected_band?: string | null;
+  acknowledge_dn_limits: boolean;
+  exclude_saturated: boolean;
+  edge_inset_percent: number;
+  weighted: boolean;
+  robust: boolean;
+  max_cv: number | null;
+  max_saturation_percent: number | null;
+  max_validation_rmse: number | null;
+  execute: boolean;
+}
+
+export interface CalibrationRun {
+  id: string;
+  state: "draft" | "queued" | "running" | "cancel_requested" | "cancelled" | "completed" | "failed";
+  method: string;
+  input_mode: string;
+  config: CalibrationRunInput;
+  result: {
+    targets?: {
+      capture_id: string;
+      capture_key: string;
+      reference_capture_id?: string;
+      reference_capture_ids?: string[];
+      state: "completed" | "failed";
+      errors: string[];
+      bands: Record<string, {
+        output: string;
+        original_filename: string;
+        distribution: { invalid_percent: number; saturated_percent: number; out_of_range_percent: number };
+      }>;
+    }[];
+    target_summary?: { requested: number; completed: number; failed: number; skipped?: number };
+    reference_captures?: {
+      capture_id: string;
+      capture_key: string;
+      bands: Record<string, { model: { slope: number; intercept: number }; output?: string; filename?: string; surfaces: { surface: string; role: string; reference: number }[] }>;
+      output_directory: string;
+    }[];
+    bands: Record<string, {
+      model: { slope: number; intercept: number; r2: number | null; rmse: number; residuals: number[] };
+      fit_error: { rmse: number; mae: number; bias: number; r2: number | null };
+      validation: { rmse: number; mae: number; bias: number } | null;
+      internal_check?: { rmse: number; mae: number; bias: number } | null;
+      distribution: {
+        invalid_percent: number;
+        saturated_percent: number;
+        out_of_range_percent: number;
+        histogram_before: { counts: number[]; edges: number[] };
+        histogram_after: { counts: number[]; edges: number[] };
+      };
+      surfaces: { surface: string; role: string; reference: number; estimated: number; residual: number; dn: { median: number; valid_pixels: number; saturated_percent: number }; signal: { median: number; cv: number | null } }[];
+    }>;
+    warnings: string[];
+    preview_urls?: Record<string, { original?: string; calibrated?: string }>;
+    capture_preview_urls?: Record<string, Record<string, { original?: string; calibrated?: string }>>;
+    combined_models?: Record<string, { slope: number; intercept: number; reference_capture_ids: string[] }>;
+    combined_reference_check?: Record<string, { rmse: number; observations: { capture_id: string; capture_key: string; reference: number; estimated: number; residual: number }[] }>;
+    reference_combination?: "mean_coefficients";
+    classification: string;
+    classification_reasons: string[];
+  } | null;
+  error: string | null;
+  download_available: boolean;
+  created_at: string;
+}
 
 export interface CaptureSummary {
   id: string;
@@ -374,6 +493,7 @@ export type ExportFormat =
   | "logs"
   | "rasters_roi"
   | "rasters_full_image"
+  | "calibrated_rasters"
   | "complete";
 
 export interface ReproducibilityInput {
@@ -486,7 +606,13 @@ export interface ProcessingRecipe {
   updated_at: string;
 }
 
-function developmentUserId() {
+async function developmentUserId() {
+  if (desktopLocal) {
+    const response = await fetch("/desktop-identity");
+    if (!response.ok) throw new Error("A identidade local não está disponível.");
+    const body = (await response.json()) as { userId: string };
+    return body.userId;
+  }
   const storageKey = "spectral-index-dev-user-id";
   const existing = window.localStorage.getItem(storageKey);
   if (existing) return existing;
@@ -500,10 +626,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   headers.set("Content-Type", "application/json");
   if (accessTokenProvider !== null) {
     headers.set("Authorization", `Bearer ${await accessTokenProvider()}`);
-  } else if (externalAuthConfigured || import.meta.env.PROD) {
+  } else if (externalAuthConfigured || (import.meta.env.PROD && !desktopLocal)) {
     throw new Error("A autenticação ainda não está pronta. Entre novamente.");
   } else {
-    headers.set("X-Dev-User-Id", developmentUserId());
+    headers.set("X-Dev-User-Id", await developmentUserId());
   }
   const response = await fetch(`${apiBaseUrl}/api/v1${path}`, {
     ...options,
@@ -511,11 +637,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
-      detail?: string;
+      detail?: string | { msg?: string; loc?: unknown[] }[];
     } | null;
-    throw new Error(
-      body?.detail ?? `Request failed (${String(response.status)})`,
-    );
+    const detail = body?.detail;
+    const description = typeof detail === "string"
+      ? detail
+      : Array.isArray(detail)
+        ? detail.map((item) => `${item.loc?.slice(1).join(".") ?? "campo"}: ${item.msg ?? "valor inválido"}`).join("; ")
+        : `Request failed (${String(response.status)})`;
+    throw new Error(description);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -525,10 +655,10 @@ async function requestBlob(path: string): Promise<string> {
   const headers = new Headers();
   if (accessTokenProvider !== null) {
     headers.set("Authorization", `Bearer ${await accessTokenProvider()}`);
-  } else if (externalAuthConfigured || import.meta.env.PROD) {
+  } else if (externalAuthConfigured || (import.meta.env.PROD && !desktopLocal)) {
     throw new Error("A autenticação ainda não está pronta. Entre novamente.");
   } else {
-    headers.set("X-Dev-User-Id", developmentUserId());
+    headers.set("X-Dev-User-Id", await developmentUserId());
   }
   const response = await fetch(`${apiBaseUrl}/api/v1${path}`, {
     headers,
@@ -538,6 +668,20 @@ async function requestBlob(path: string): Promise<string> {
       `Não foi possível carregar a visualização (${String(response.status)})`,
     );
   }
+  return URL.createObjectURL(await response.blob());
+}
+
+async function requestDownloadBlob(path: string): Promise<string> {
+  const headers = new Headers();
+  if (accessTokenProvider !== null) {
+    headers.set("Authorization", `Bearer ${await accessTokenProvider()}`);
+  } else if (externalAuthConfigured || (import.meta.env.PROD && !desktopLocal)) {
+    throw new Error("A autenticação ainda não está pronta. Entre novamente.");
+  } else {
+    headers.set("X-Dev-User-Id", await developmentUserId());
+  }
+  const response = await fetch(`${apiBaseUrl}/api/v1${path}`, { headers });
+  if (!response.ok) throw new Error(`Não foi possível baixar o pacote (${String(response.status)}).`);
   return URL.createObjectURL(await response.blob());
 }
 
@@ -625,10 +769,58 @@ export const api = {
     }),
   cancelUpload: (sessionId: string) =>
     request<UploadSession>(`/uploads/${sessionId}/cancel`, { method: "POST" }),
+  archiveDesktopImage: (sessionId: string, objectId: string) =>
+    request<UploadObject>(`/uploads/${sessionId}/objects/${objectId}/archive`, {
+      method: "POST",
+    }),
+  restoreDesktopImage: (sessionId: string, objectId: string) =>
+    request<UploadObject>(`/uploads/${sessionId}/objects/${objectId}/restore`, {
+      method: "POST",
+    }),
   listCaptures: (datasetId: string) =>
     request<CaptureSummary[]>(`/datasets/${datasetId}/captures`),
   getCapture: (captureId: string) =>
     request<CaptureDetail>(`/captures/${captureId}`),
+  listCalibrationPanels: () =>
+    request<CalibrationPanel[]>("/calibration/panels"),
+  createCalibrationPanel: (input: {
+    name: string;
+    manufacturer?: string;
+    model?: string;
+    serial_number?: string;
+    calibrated_at?: string | null;
+    notes?: string;
+    source_label: string;
+    certified: boolean;
+    values: Record<string, Record<string, number>>;
+    certificate_csv?: string;
+  }) => request<CalibrationPanel>("/calibration/panels", {
+    method: "POST", body: JSON.stringify(input),
+  }),
+  getCalibrationBands: (captureId: string) =>
+    request<CalibrationBand[]>(`/calibration/captures/${captureId}/bands`),
+  getCalibrationPixel: (captureId: string, band: string, x: number, y: number) =>
+    request<{ x: number; y: number; dn: number; camera_signal: number | null }>(
+      `/calibration/captures/${captureId}/pixels/${band}?x=${String(x)}&y=${String(y)}`,
+    ),
+  listCalibrationRuns: (datasetId: string) =>
+    request<CalibrationRun[]>(`/datasets/${datasetId}/calibration-runs`),
+  createCalibrationRun: (input: CalibrationRunInput) =>
+    request<CalibrationRun>("/calibration/runs", {
+      method: "POST", body: JSON.stringify(input),
+    }),
+  getCalibrationRun: (runId: string) =>
+    request<CalibrationRun>(`/calibration/runs/${runId}`),
+  executeCalibrationRun: (runId: string) =>
+    request<CalibrationRun>(`/calibration/runs/${runId}/execute`, { method: "POST" }),
+  cancelCalibrationRun: (runId: string) =>
+    request<CalibrationRun>(`/calibration/runs/${runId}/cancel`, { method: "POST" }),
+  retryFailedCalibrationCaptures: (runId: string) =>
+    request<CalibrationRun>(`/calibration/runs/${runId}/retry-failed`, { method: "POST" }),
+  getCalibrationDownload: (runId: string) =>
+    request<{ url: string }>(`/calibration/runs/${runId}/download`),
+  downloadCalibrationFile: (runId: string) =>
+    requestDownloadBlob(`/calibration/runs/${runId}/download-file`),
   listROIs: (captureId: string) =>
     request<ROI[]>(`/captures/${captureId}/rois`),
   createROI: (captureId: string, input: ROIInput) =>
@@ -659,7 +851,7 @@ export const api = {
           }[];
         }
       | { recipe_id: string }
-    ) & { analysis_scopes: AnalysisScope[] },
+    ) & { analysis_scopes: AnalysisScope[]; calibration_run_id?: string },
     idempotencyKey: string,
   ) =>
     request<ProcessingJob>(`/datasets/${datasetId}/processing-jobs`, {

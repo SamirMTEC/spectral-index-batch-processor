@@ -5,7 +5,17 @@ from uuid import UUID
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from spectral_api.domain.models import BandAsset, Dataset
+from spectral_api.domain.models import (
+    BandAsset,
+    BandAssetState,
+    Capture,
+    Dataset,
+    DatasetState,
+    UploadObject,
+    UploadObjectState,
+    UploadSession,
+    UploadSessionState,
+)
 
 FIRST_USER = "30000000-0000-0000-0000-000000000003"
 SECOND_USER = "40000000-0000-0000-0000-000000000004"
@@ -194,3 +204,94 @@ async def test_large_file_uses_batched_multipart_urls(domain_app: FastAPI) -> No
         )
         assert parts.status_code == 200
         assert [value["part_number"] for value in parts.json()["parts"]] == [1, 2, 3]
+
+
+async def test_desktop_removes_and_restores_an_uploaded_band(
+    domain_app: FastAPI, monkeypatch: Any
+) -> None:
+    monkeypatch.setenv("SPECTRAL_DESKTOP_MODE", "true")
+    async with client_for(domain_app) as client:
+        dataset_id = await create_dataset(client)
+        created = (
+            await client.post(
+                f"/api/v1/datasets/{dataset_id}/uploads",
+                json={
+                    "mode": "files",
+                    "files": [{"relative_path": "R1/DJI_0301.TIF", "size_bytes": 100}],
+                },
+            )
+        ).json()
+        object_id = created["objects"][0]["id"]
+        async with domain_app.state.session_factory() as session:
+            dataset = await session.get(Dataset, UUID(dataset_id))
+            upload = await session.get(UploadSession, UUID(created["id"]))
+            upload_object = await session.get(UploadObject, UUID(object_id))
+            assert dataset and upload and upload_object
+            dataset.state = DatasetState.NEEDS_REVIEW
+            upload.state = UploadSessionState.COMPLETED
+            upload_object.state = UploadObjectState.VALID
+            capture = Capture(
+                project_id=dataset.project_id,
+                owner_id=dataset.owner_id,
+                dataset_id=dataset.id,
+                capture_key="DJI_030",
+            )
+            session.add(capture)
+            await session.flush()
+            asset = BandAsset(
+                project_id=dataset.project_id,
+                owner_id=dataset.owner_id,
+                dataset_id=dataset.id,
+                upload_object_id=upload_object.id,
+                capture_id=capture.id,
+                band_code="BLUE",
+                original_filename="DJI_0301.TIF",
+                object_key="originals/test/DJI_0301.TIF",
+                sha256="b" * 64,
+                state=BandAssetState.ACCEPTED,
+            )
+            session.add(asset)
+            await session.commit()
+            asset_id = asset.id
+            capture_id = capture.id
+
+        endpoint = f"/api/v1/uploads/{created['id']}/objects/{object_id}"
+        assert len((await client.get(f"/api/v1/datasets/{dataset_id}/captures")).json()) == 1
+        removed = await client.post(f"{endpoint}/archive")
+        assert removed.status_code == 200
+        assert removed.json()["metadata_json"]["desktop_removed_at"]
+        assert (await client.get(f"/api/v1/datasets/{dataset_id}/captures")).json() == []
+        async with domain_app.state.session_factory() as session:
+            archived = await session.get(BandAsset, asset_id)
+            assert archived and archived.state is BandAssetState.ARCHIVED
+            assert archived.object_key == "originals/test/DJI_0301.TIF"
+            replacement = BandAsset(
+                project_id=archived.project_id,
+                owner_id=archived.owner_id,
+                dataset_id=archived.dataset_id,
+                capture_id=capture_id,
+                band_code="BLUE",
+                original_filename="DJI_0301-replacement.TIF",
+                object_key="originals/test/replacement.TIF",
+                sha256="c" * 64,
+                state=BandAssetState.ACCEPTED,
+            )
+            session.add(replacement)
+            await session.commit()
+            replacement_id = replacement.id
+        assert (await client.post(f"{endpoint}/restore")).status_code == 409
+        async with domain_app.state.session_factory() as session:
+            replacement = await session.get(BandAsset, replacement_id)
+            assert replacement
+            replacement.state = BandAssetState.ARCHIVED
+            await session.commit()
+        restored = await client.post(f"{endpoint}/restore")
+        assert restored.status_code == 200
+        assert "desktop_removed_at" not in restored.json()["metadata_json"]
+        assert len((await client.get(f"/api/v1/datasets/{dataset_id}/captures")).json()) == 1
+
+    async with client_for(domain_app, SECOND_USER) as other:
+        assert (await other.post(f"{endpoint}/archive")).status_code == 404
+    monkeypatch.delenv("SPECTRAL_DESKTOP_MODE")
+    async with client_for(domain_app) as client:
+        assert (await client.post(f"{endpoint}/archive")).status_code == 404

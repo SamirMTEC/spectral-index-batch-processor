@@ -23,6 +23,7 @@ import {
   api,
   type AnalysisScope,
   type CaptureSummary,
+  type CalibrationRun,
   type ProcessingItem,
   type ProcessingJob,
   type ProcessingRecipe,
@@ -42,6 +43,8 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
   const [recipes, setRecipes] = useState<ProcessingRecipe[]>([]);
   const [definitions, setDefinitions] = useState<SpectralIndexDefinition[]>([]);
   const [captures, setCaptures] = useState<CaptureSummary[]>([]);
+  const [calibrationRuns, setCalibrationRuns] = useState<CalibrationRun[]>([]);
+  const [calibrationRunId, setCalibrationRunId] = useState("");
   const [indexSearch, setIndexSearch] = useState("");
   const [recipeId, setRecipeId] = useState("");
   const [recipeName, setRecipeName] = useState("");
@@ -63,17 +66,19 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
 
   const load = useCallback(async () => {
     try {
-      const [values, storedRecipes, spectralDefinitions, datasetCaptures] =
+      const [values, storedRecipes, spectralDefinitions, datasetCaptures, runs] =
         await Promise.all([
           api.listProcessingJobs(datasetId),
           api.listProcessingRecipes(),
           api.listSpectralIndices(),
           api.listCaptures(datasetId),
+          api.listCalibrationRuns(datasetId),
         ]);
       setJobs(values);
       setRecipes(storedRecipes);
       setDefinitions(spectralDefinitions);
       setCaptures(datasetCaptures);
+      setCalibrationRuns(runs);
       setActiveId((current) => current ?? values[0]?.id);
       setError(undefined);
     } catch (cause) {
@@ -125,6 +130,14 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
     }
     return intersection;
   }, [captures]);
+  const usableCalibrations = useMemo(() => calibrationRuns.filter((run) => {
+    if (run.state !== "completed" || !run.download_available || !run.result) return false;
+    const outputCaptures = new Set([
+      ...(run.result.reference_captures ?? []).map((item) => item.capture_id),
+      ...(run.result.targets ?? []).filter((item) => item.state === "completed").map((item) => item.capture_id),
+    ]);
+    return captures.length > 0 && captures.every((capture) => outputCaptures.has(capture.id));
+  }), [calibrationRuns, captures]);
   const filteredDefinitions = useMemo(() => {
     const query = indexSearch.trim().toLocaleLowerCase("pt-BR");
     if (!query) return definitions;
@@ -155,6 +168,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
           ? {
               recipe_id: recipeId,
               analysis_scopes: Array.from(analysisScopes),
+              ...(calibrationRunId ? { calibration_run_id: calibrationRunId } : {}),
             }
           : {
               indices: Array.from(selected).map((name) => ({
@@ -167,6 +181,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
                 ),
               })),
               analysis_scopes: Array.from(analysisScopes),
+              ...(calibrationRunId ? { calibration_run_id: calibrationRunId } : {}),
             },
         window.crypto.randomUUID(),
       );
@@ -274,7 +289,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
   return (
     <div className="space-y-6">
       <WorkflowStepper
-        current={active ? (terminal.has(active.state) ? 6 : 5) : 4}
+        current={active ? (terminal.has(active.state) ? (import.meta.env.VITE_DESKTOP_LOCAL === "true" ? 7 : 6) : (import.meta.env.VITE_DESKTOP_LOCAL === "true" ? 6 : 5)) : (import.meta.env.VITE_DESKTOP_LOCAL === "true" ? 5 : 4)}
         datasetId={datasetId}
         resultsHref={
           active && terminal.has(active.state)
@@ -289,6 +304,16 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
       />
 
       <section className="surface p-6">
+        {import.meta.env.VITE_DESKTOP_LOCAL === "true" && <div className="mb-6 rounded-lg border p-4">
+          <label className="grid max-w-xl gap-2 text-sm font-medium">Imagens usadas para calcular os índices
+            <select className="border-input rounded-md border px-3 py-2" onChange={(event) => setCalibrationRunId(event.target.value)} value={calibrationRunId}>
+              <option value="">Imagens originais do dataset</option>
+              {usableCalibrations.map((run) => <option key={run.id} value={run.id}>Imagens calibradas · {new Date(run.created_at).toLocaleString("pt-BR")} · {run.id.slice(0, 8)}</option>)}
+            </select>
+          </label>
+          <p className="text-muted-foreground mt-2 text-xs">A calibração escolhida deve conter todas as capturas e bandas deste processamento. Os índices usarão diretamente os TIFFs Float32 calibrados.</p>
+          {!usableCalibrations.length && <p className="mt-2 text-xs"><a className="text-emerald-800 underline" href={`/datasets/${datasetId}/calibration`}>Calibrar imagens antes da ROI de análise</a></p>}
+        </div>}
         <div>
           <h2 className="font-semibold">4. Configurar índices</h2>
           <p className="text-muted-foreground mt-1 text-sm">
@@ -597,7 +622,7 @@ export function ProcessingPage({ datasetId }: { datasetId: string }) {
           onClick={() => void start()}
         >
           {submitting ? <LoaderCircle className="animate-spin" /> : <Play />}
-          5. Iniciar processamento
+          {import.meta.env.VITE_DESKTOP_LOCAL === "true" ? "6. Iniciar processamento" : "5. Iniciar processamento"}
         </Button>
       </section>
 

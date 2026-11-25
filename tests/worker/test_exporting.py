@@ -2,6 +2,7 @@
 
 import csv
 from pathlib import Path
+from zipfile import ZipFile
 
 import pytest
 from openpyxl import load_workbook  # type: ignore[import-untyped]
@@ -44,6 +45,38 @@ def test_manifest_sanitizer_removes_infrastructure_secrets() -> None:
     )
 
     assert safe == {"parameters": {"L": 0.5}, "nested": {"keep": "visible"}}
+
+
+def test_calibrated_export_contains_all_capture_bands(tmp_path: Path) -> None:
+    source = tmp_path / "source.zip"
+    with ZipFile(source, "w") as archive:
+        for code in ("BLUE", "GREEN", "RED", "RED_EDGE", "NIR"):
+            archive.writestr(f"captures/R1/{code}_calibrated.tif", code.encode())
+
+    class FakeS3:
+        def download_file(self, _bucket: str, _key: str, destination: str) -> None:
+            Path(destination).write_bytes(source.read_bytes())
+
+    generator = object.__new__(ExportGenerator)
+    generator.s3 = FakeS3()
+    generator.settings = type("Settings", (), {"s3_bucket": "test"})()
+    root = tmp_path / "SpectralIndex_Export"
+    snapshot = {
+        "job": {"reproducibility_snapshot": {
+            "calibration_archive_key": "run.zip",
+            "captures": [{
+                "capture": "R1",
+                "calibrated_outputs": {
+                    code: f"captures/R1/{code}_calibrated.tif"
+                    for code in ("BLUE", "GREEN", "RED", "RED_EDGE", "NIR")
+                },
+            }],
+        }},
+        "items": [],
+    }
+    output = generator._output_for({"artifact_type": "calibrated_rasters_zip"}, root, snapshot)
+    with ZipFile(output) as archive:
+        assert len([name for name in archive.namelist() if name.endswith(".tif")]) == 5
 
 
 def test_summary_export_aggregates_repetition_means_by_treatment_and_index(

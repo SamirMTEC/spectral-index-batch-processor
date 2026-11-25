@@ -225,6 +225,8 @@ async def list_captures(
             )
             or 0
         )
+        if band_count == 0:
+            continue
         band_codes = sorted(band_codes_by_capture[capture.id])
         roi_count = int(
             await session.scalar(

@@ -39,5 +39,7 @@ module = [
   "celery",
   "celery.*",
   "billiard.*",
+  "reportlab",
+  "reportlab.*",
 ]
 ignore_missing_imports = true

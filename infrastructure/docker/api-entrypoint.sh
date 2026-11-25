@@ -6,6 +6,7 @@ case "${1:-serve}" in
     exec uvicorn spectral_api.main:app \
       --host 0.0.0.0 \
       --port "${PORT:-8000}" \
+      --loop asyncio \
       --workers "${SPECTRAL_API_WORKERS:-2}" \
       --timeout-keep-alive "${SPECTRAL_API_KEEPALIVE_SECONDS:-5}" \
       --timeout-graceful-shutdown "${SPECTRAL_GRACEFUL_SHUTDOWN_SECONDS:-45}" \

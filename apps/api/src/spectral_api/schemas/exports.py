@@ -16,6 +16,7 @@ ExportFormat = Literal[
     "logs",
     "rasters_roi",
     "rasters_full_image",
+    "calibrated_rasters",
     "complete",
 ]
 

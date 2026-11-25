@@ -675,7 +675,7 @@ class IngestionHandler:
                 band_codes = {asset["band_code"] for asset in assets}
                 if len(band_codes) != len(assets):
                     continue
-                if band_codes != set(band_order):
+                if not band_codes.issubset(set(band_order)):
                     continue
 
                 first = assets[0]
@@ -773,7 +773,30 @@ class IngestionHandler:
                             "height": height,
                             "crs": first["crs"],
                             "transform": json.dumps(first["transform"]),
-                            "alignment_status": "compatible" if same_grid else "incompatible",
+                            "alignment_status": (
+                                "compatible"
+                                if same_grid and band_codes == set(band_order)
+                                else "incompatible"
+                            ),
+                        },
+                    )
+                else:
+                    await connection.execute(
+                        text(
+                            """
+                            UPDATE captures
+                            SET alignment_status = :alignment_status,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = :capture_id
+                            """
+                        ),
+                        {
+                            "capture_id": capture_id,
+                            "alignment_status": (
+                                "compatible"
+                                if same_grid and band_codes == set(band_order)
+                                else "incompatible"
+                            ),
                         },
                     )
 

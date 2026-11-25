@@ -1,5 +1,6 @@
 """Owner-scoped direct multipart upload endpoints."""
 
+import os
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
@@ -15,6 +16,7 @@ from spectral_api.dependencies import CurrentUser, get_session
 from spectral_api.domain.models import (
     AssetRole,
     BandAsset,
+    BandAssetState,
     Dataset,
     DatasetState,
     UploadMode,
@@ -46,6 +48,11 @@ from spectral_api.services.uploads import (
 
 router = APIRouter(tags=["uploads"])
 Session = Annotated[AsyncSession, Depends(get_session)]
+
+
+def _require_desktop_mode() -> None:
+    if os.environ.get("SPECTRAL_DESKTOP_MODE") != "true":
+        raise HTTPException(status_code=404, detail="Desktop operation unavailable")
 
 
 def storage_for(request: Request, settings: Settings) -> UploadStorage:
@@ -306,6 +313,122 @@ async def list_upload_sessions(
             )
         )
     return responses
+
+
+async def _set_desktop_removed(
+    upload_session_id: UUID,
+    object_id: UUID,
+    session: AsyncSession,
+    user: Any,
+    *,
+    removed: bool,
+) -> UploadObjectResponse:
+    _require_desktop_mode()
+    upload = await get_owned_upload_session(session, upload_session_id, user.id)
+    upload_object = await get_owned_upload_object(session, upload_session_id, object_id, user.id)
+    if upload_object.role is AssetRole.ARCHIVE:
+        raise HTTPException(status_code=422, detail="Remove extracted images individually")
+    if upload_object.state not in {
+        UploadObjectState.VALID,
+        UploadObjectState.INVALID,
+        UploadObjectState.FAILED,
+    }:
+        raise HTTPException(status_code=409, detail="Wait for validation or cancel the upload")
+    dataset = await get_owned_dataset(session, upload.dataset_id, user.id)
+    if dataset.state is DatasetState.ARCHIVED:
+        raise HTTPException(status_code=409, detail="Archived dataset cannot be changed")
+    metadata = dict(upload_object.metadata_json or {})
+    currently_removed = bool(metadata.get("desktop_removed_at"))
+    if currently_removed == removed:
+        return UploadObjectResponse.model_validate(upload_object)
+    asset = await session.scalar(
+        select(BandAsset).where(
+            BandAsset.upload_object_id == object_id,
+            BandAsset.owner_id == user.id,
+            BandAsset.dataset_id == upload.dataset_id,
+        )
+    )
+    if asset is not None:
+        expected = BandAssetState.ACCEPTED if removed else BandAssetState.ARCHIVED
+        if asset.state is not expected:
+            raise HTTPException(status_code=409, detail="Image state changed; refresh the list")
+        if not removed and asset.capture_id and asset.band_code:
+            replacement = await session.scalar(
+                select(BandAsset.id)
+                .where(
+                    BandAsset.capture_id == asset.capture_id,
+                    BandAsset.band_code == asset.band_code,
+                    BandAsset.state == BandAssetState.ACCEPTED,
+                    BandAsset.id != asset.id,
+                )
+                .limit(1)
+            )
+            if replacement is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Remove the replacement band before restoring this image",
+                )
+        asset.state = BandAssetState.ARCHIVED if removed else BandAssetState.ACCEPTED
+    if removed:
+        metadata["desktop_removed_at"] = datetime.now(UTC).isoformat()
+    else:
+        metadata.pop("desktop_removed_at", None)
+    upload_object.metadata_json = metadata
+    active_upload = await session.scalar(
+        select(UploadObject.id)
+        .where(
+            UploadObject.dataset_id == upload.dataset_id,
+            UploadObject.owner_id == user.id,
+            UploadObject.state.in_(
+                {
+                    UploadObjectState.PENDING,
+                    UploadObjectState.UPLOADING,
+                    UploadObjectState.UPLOADED,
+                    UploadObjectState.VALIDATING,
+                }
+            ),
+        )
+        .limit(1)
+    )
+    accepted = await session.scalar(
+        select(BandAsset.id)
+        .where(
+            BandAsset.dataset_id == upload.dataset_id,
+            BandAsset.owner_id == user.id,
+            BandAsset.state == BandAssetState.ACCEPTED,
+        )
+        .limit(1)
+    )
+    dataset.state = (
+        DatasetState.UPLOADING
+        if active_upload is not None
+        else DatasetState.NEEDS_REVIEW
+        if accepted is not None
+        else DatasetState.DRAFT
+    )
+    await session.commit()
+    await session.refresh(upload_object)
+    return UploadObjectResponse.model_validate(upload_object)
+
+
+@router.post(
+    "/uploads/{upload_session_id}/objects/{object_id}/archive",
+    response_model=UploadObjectResponse,
+)
+async def archive_desktop_image(
+    upload_session_id: UUID, object_id: UUID, session: Session, user: CurrentUser
+) -> UploadObjectResponse:
+    return await _set_desktop_removed(upload_session_id, object_id, session, user, removed=True)
+
+
+@router.post(
+    "/uploads/{upload_session_id}/objects/{object_id}/restore",
+    response_model=UploadObjectResponse,
+)
+async def restore_desktop_image(
+    upload_session_id: UUID, object_id: UUID, session: Session, user: CurrentUser
+) -> UploadObjectResponse:
+    return await _set_desktop_removed(upload_session_id, object_id, session, user, removed=False)
 
 
 @router.post(

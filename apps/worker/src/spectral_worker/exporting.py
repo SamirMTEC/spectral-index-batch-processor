@@ -7,6 +7,7 @@ import csv
 import hashlib
 import json
 import re
+import shutil
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -485,12 +486,24 @@ class ExportGenerator:
 
     def _output_for(self, artifact: dict[str, Any], root: Path, snapshot: dict[str, Any]) -> Path:
         artifact_type = str(artifact["artifact_type"])
+        if artifact_type == "calibrated_rasters_zip":
+            calibrated_root = root.parent / "SpectralIndex_Calibrated"
+            self._add_calibrated_rasters(calibrated_root, snapshot)
+            output = root.parent / "SpectralIndex_Calibrated.zip"
+            with zipfile.ZipFile(
+                output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
+            ) as archive:
+                for source in calibrated_root.rglob("*"):
+                    if source.is_file():
+                        archive.write(source, source.relative_to(calibrated_root.parent))
+            return output
         if artifact_type in {"roi_rasters_zip", "full_image_rasters_zip"}:
             scope = "roi" if artifact_type == "roi_rasters_zip" else "full_image"
             return self._raster_archive(root, snapshot, scope)
         if artifact_type != "bundle_zip":
             return root / ARTIFACT_PATHS[artifact_type]
         self._add_rasters(root, snapshot)
+        self._add_calibrated_rasters(root, snapshot)
         output = root.parent / "SpectralIndex_Export.zip"
         with zipfile.ZipFile(
             output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
@@ -500,17 +513,59 @@ class ExportGenerator:
                     archive.write(source, source.relative_to(root.parent))
         return output
 
-    def _raster_archive(
-        self, root: Path, snapshot: dict[str, Any], analysis_scope: str
-    ) -> Path:
+    def _add_calibrated_rasters(self, root: Path, snapshot: dict[str, Any]) -> None:
+        inputs: dict[str, dict[tuple[str, str], str]] = {}
+        frozen = snapshot["job"].get("reproducibility_snapshot") or {}
+        archive_key = frozen.get("calibration_archive_key")
+        if isinstance(archive_key, str):
+            for capture in frozen.get("captures", []):
+                label = _safe_segment(capture.get("capture"), "capture")
+                for code, member in capture.get("calibrated_outputs", {}).items():
+                    if isinstance(member, str):
+                        inputs.setdefault(archive_key, {})[(label, str(code))] = member
+        for item in snapshot["items"]:
+            capture = _safe_segment(item.get("capture_key"), "capture")
+            for band in item.get("input_snapshot") or []:
+                key = band.get("calibration_archive_key")
+                member = band.get("calibration_member")
+                code = band.get("band")
+                if isinstance(key, str) and isinstance(member, str) and isinstance(code, str):
+                    inputs.setdefault(key, {})[(capture, code)] = member
+        for number, (key, selected) in enumerate(inputs.items()):
+            archive_path = root.parent / f"calibration-input-{number}.zip"
+            self.s3.download_file(self.settings.s3_bucket, key, str(archive_path))
+            try:
+                with zipfile.ZipFile(archive_path) as archive:
+                    for (capture, code), member in selected.items():
+                        info = archive.getinfo(member)
+                        if (
+                            info.is_dir()
+                            or info.file_size > 2_000_000_000
+                            or not member.lower().endswith(".tif")
+                        ):
+                            raise ValueError("Invalid calibrated TIFF in calibration archive")
+                        target = (
+                            root
+                            / "calibrated_images"
+                            / capture
+                            / (
+                                f"{_safe_segment(code, 'band')}_"
+                                f"{_safe_segment(Path(member).name, 'image.tif')}"
+                            )
+                        )
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with archive.open(info) as source, target.open("wb") as destination:
+                            shutil.copyfileobj(source, destination)
+            finally:
+                archive_path.unlink(missing_ok=True)
+
+    def _raster_archive(self, root: Path, snapshot: dict[str, Any], analysis_scope: str) -> Path:
         scoped_root = root.parent / (
             "SpectralIndex_ROI" if analysis_scope == "roi" else "SpectralIndex_Full_Image"
         )
         self._add_rasters(scoped_root, snapshot, analysis_scope=analysis_scope)
         output = root.parent / (
-            "SpectralIndex_ROI.zip"
-            if analysis_scope == "roi"
-            else "SpectralIndex_Full_Image.zip"
+            "SpectralIndex_ROI.zip" if analysis_scope == "roi" else "SpectralIndex_Full_Image.zip"
         )
         with zipfile.ZipFile(
             output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6
@@ -536,13 +591,7 @@ class ExportGenerator:
             capture = _safe_segment(item["capture_key"], "capture")
             index = _safe_segment(item["index_name"], "index")
             scope_directory = "roi" if scope == "roi" else "full_image"
-            target = (
-                root
-                / "rasters"
-                / scope_directory
-                / treatment
-                / f"{capture}_{index}.tif"
-            )
+            target = root / "rasters" / scope_directory / treatment / f"{capture}_{index}.tif"
             target.parent.mkdir(parents=True, exist_ok=True)
             extra = (
                 {"VersionId": item["result_object_version_id"]}

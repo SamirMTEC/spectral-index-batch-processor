@@ -1,0 +1,62 @@
+{
+  "name": "@spectral-index/desktop",
+  "version": "0.6.0",
+  "private": true,
+  "description": "SpectralIndex Desktop for Windows",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "pack": "electron-builder --win dir",
+    "installer": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "br.com.classlab.spectralindex.desktop",
+    "productName": "SpectralIndex Desktop",
+    "asar": true,
+    "electronLanguages": ["pt-BR", "en-US"],
+    "directories": {
+      "output": "../../dist/desktop",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.cjs",
+      "server.cjs",
+      "runtime.cjs",
+      "startup.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../../apps/web/dist",
+        "to": "web"
+      },
+      {
+        "from": "../../docker-compose.yml",
+        "to": "stack/docker-compose.yml"
+      },
+      {
+        "from": "docker-compose.desktop.yml",
+        "to": "stack/docker-compose.desktop.yml"
+      },
+      {
+        "from": "offline-images.tar.gz",
+        "to": "offline-images.tar.gz"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "SpectralIndex-Desktop-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}
